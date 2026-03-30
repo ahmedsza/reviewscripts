@@ -728,6 +728,35 @@ function Get-DetailedResourceSnapshotResult {
     }
 }
 
+function Assert-ResourceGroupAvailable {
+    param(
+        [Parameter(Mandatory = $true)]
+        $AccountResult,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ResourceGroupName
+    )
+
+    $resourceGroupResult = Invoke-AzCliCommand -Label 'Resource Group Overview' -Arguments @('group', 'show', '--name', $ResourceGroupName)
+
+    if (-not $resourceGroupResult.Success) {
+        $currentSubscriptionName = Get-SafePropertyValue -InputObject $AccountResult.Data -Path @('name')
+        $currentSubscriptionId = Get-SafePropertyValue -InputObject $AccountResult.Data -Path @('id')
+        $effectiveSubscription = if ($Subscription) { $Subscription } elseif ($currentSubscriptionId) { $currentSubscriptionId } else { '(unknown)' }
+
+        throw (
+            "Resource group '{0}' was not found in the current Azure CLI context. Active subscription: {1} ({2}). In Cloud Shell this usually means you are connected to a different subscription. Run 'az account show' and 'az account list --output table', then rerun the script with -Subscription <subscription-id-or-name> or switch first with 'az account set --subscription <subscription-id-or-name>'. Effective subscription for this run: {3}. Original Azure CLI error: {4}" -f
+            $ResourceGroupName,
+            $currentSubscriptionName,
+            $currentSubscriptionId,
+            $effectiveSubscription,
+            $resourceGroupResult.ErrorMessage
+        )
+    }
+
+    return $resourceGroupResult
+}
+
 Test-AzureCliPrerequisites
 Write-StatusMessage -Level 'INFO' -Message ('Starting resource group report for {0}' -f $ResourceGroup)
 
@@ -754,7 +783,8 @@ function Add-QueryResult {
 }
 
 $account = Add-QueryResult -Label 'Azure Account' -Arguments @('account', 'show') -Required
-$resourceGroupResult = Add-QueryResult -Label 'Resource Group Overview' -Arguments @('group', 'show', '--name', $ResourceGroup) -Required
+$resourceGroupResult = Assert-ResourceGroupAvailable -AccountResult $account -ResourceGroupName $ResourceGroup
+$results.Add($resourceGroupResult)
 $resourceGroupId = $resourceGroupResult.Data.id
 $resources = Add-QueryResult -Label 'Resource Group Resources' -Arguments @('resource', 'list', '--resource-group', $ResourceGroup) -Required
 $locks = Add-QueryResult -Label 'Resource Group Locks' -Arguments @('lock', 'list', '--resource-group', $ResourceGroup)

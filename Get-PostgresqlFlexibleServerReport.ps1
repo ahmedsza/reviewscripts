@@ -343,6 +343,35 @@ function Add-CollectionStatusSection {
     Add-MarkdownLine -Builder $Builder
 }
 
+function Assert-ResourceGroupAvailable {
+    param(
+        [Parameter(Mandatory = $true)]
+        $AccountResult,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ResourceGroupName
+    )
+
+    $resourceGroupResult = Invoke-AzCliCommand -Label 'Resource Group Overview' -Arguments @('group', 'show', '--name', $ResourceGroupName)
+
+    if (-not $resourceGroupResult.Success) {
+        $currentSubscriptionName = Get-SafePropertyValue -InputObject $AccountResult.Data -Path @('name')
+        $currentSubscriptionId = Get-SafePropertyValue -InputObject $AccountResult.Data -Path @('id')
+        $effectiveSubscription = if ($Subscription) { $Subscription } elseif ($currentSubscriptionId) { $currentSubscriptionId } else { '(unknown)' }
+
+        throw (
+            "Resource group '{0}' was not found in the current Azure CLI context. Active subscription: {1} ({2}). In Cloud Shell this usually means you are connected to a different subscription. Run 'az account show' and 'az account list --output table', then rerun the script with -Subscription <subscription-id-or-name> or switch first with 'az account set --subscription <subscription-id-or-name>'. Effective subscription for this run: {3}. Original Azure CLI error: {4}" -f
+            $ResourceGroupName,
+            $currentSubscriptionName,
+            $currentSubscriptionId,
+            $effectiveSubscription,
+            $resourceGroupResult.ErrorMessage
+        )
+    }
+
+    return $resourceGroupResult
+}
+
 function Get-AssociatedPrivateEndpoints {
     param(
         [Parameter(Mandatory = $true)]
@@ -394,6 +423,8 @@ function Add-QueryResult {
 }
 
 $account = Add-QueryResult -Label 'Azure Account' -Arguments @('account', 'show') -Required
+$resourceGroupResult = Assert-ResourceGroupAvailable -AccountResult $account -ResourceGroupName $ResourceGroup
+$results.Add($resourceGroupResult)
 $server = Add-QueryResult -Label 'PostgreSQL Flexible Server Overview' -Arguments @('postgres', 'flexible-server', 'show', '--name', $ServerName, '--resource-group', $ResourceGroup) -Required
 
 $serverId = $server.Data.id
@@ -422,6 +453,7 @@ $summary = [ordered]@{
     'Subscription Name' = $account.Data.name
     'Subscription Id' = $account.Data.id
     'Tenant Id' = $account.Data.tenantId
+    'Resource Group Location' = $resourceGroupResult.Data.location
     'Server Name' = $server.Data.name
     'Location' = $server.Data.location
     'State' = $server.Data.state
@@ -454,6 +486,7 @@ Add-MarkdownLine -Builder $builder -Text '## Summary'
 Add-KeyValueTable -Builder $builder -Values $summary
 
 Add-JsonSection -Builder $builder -Title 'Azure Account Context' -Result $account
+Add-JsonSection -Builder $builder -Title 'Resource Group Overview' -Result $resourceGroupResult
 Add-JsonSection -Builder $builder -Title 'PostgreSQL Flexible Server Overview' -Result $server
 Add-JsonSection -Builder $builder -Title 'PostgreSQL Flexible Server ARM Resource' -Result $resourceView
 Add-JsonSection -Builder $builder -Title 'PostgreSQL Flexible Server Databases' -Result $databases

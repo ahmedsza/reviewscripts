@@ -366,6 +366,35 @@ function Add-CollectionStatusSection {
     Add-MarkdownLine -Builder $Builder
 }
 
+function Assert-ResourceGroupAvailable {
+    param(
+        [Parameter(Mandatory = $true)]
+        $AccountResult,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ResourceGroupName
+    )
+
+    $resourceGroupResult = Invoke-AzCliCommand -Label 'Resource Group Overview' -Arguments @('group', 'show', '--name', $ResourceGroupName)
+
+    if (-not $resourceGroupResult.Success) {
+        $currentSubscriptionName = Get-SafePropertyValue -InputObject $AccountResult.Data -Path @('name')
+        $currentSubscriptionId = Get-SafePropertyValue -InputObject $AccountResult.Data -Path @('id')
+        $effectiveSubscription = if ($Subscription) { $Subscription } elseif ($currentSubscriptionId) { $currentSubscriptionId } else { '(unknown)' }
+
+        throw (
+            "Resource group '{0}' was not found in the current Azure CLI context. Active subscription: {1} ({2}). In Cloud Shell this usually means you are connected to a different subscription. Run 'az account show' and 'az account list --output table', then rerun the script with -Subscription <subscription-id-or-name> or switch first with 'az account set --subscription <subscription-id-or-name>'. Effective subscription for this run: {3}. Original Azure CLI error: {4}" -f
+            $ResourceGroupName,
+            $currentSubscriptionName,
+            $currentSubscriptionId,
+            $effectiveSubscription,
+            $resourceGroupResult.ErrorMessage
+        )
+    }
+
+    return $resourceGroupResult
+}
+
 function Get-DiagnosticsBasePath {
     param(
         [Parameter(Mandatory = $true)]
@@ -455,6 +484,8 @@ function Add-RestResult {
 }
 
 $account = Add-QueryResult -Label 'Azure Account' -Arguments @('account', 'show') -Required
+$resourceGroupResult = Assert-ResourceGroupAvailable -AccountResult $account -ResourceGroupName $ResourceGroup
+$results.Add($resourceGroupResult)
 $webAppArguments = @('webapp', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup)
 if ($Slot) {
     $webAppArguments += @('--slot', $Slot)
@@ -548,6 +579,7 @@ $summary = [ordered]@{
     'Subscription Name' = $account.Data.name
     'Subscription Id' = $account.Data.id
     'Tenant Id' = $account.Data.tenantId
+    'Resource Group Location' = $resourceGroupResult.Data.location
     'App Service Name' = $webApp.Data.name
     'Slot' = if ($Slot) { $Slot } else { 'production' }
     'Kind' = $webApp.Data.kind
@@ -583,6 +615,7 @@ if (-not $categories.Success -and $detectorResponses.Success) {
 }
 
 Add-JsonSection -Builder $builder -Title 'Azure Account Context' -Result $account
+Add-JsonSection -Builder $builder -Title 'Resource Group Overview' -Result $resourceGroupResult
 Add-JsonSection -Builder $builder -Title 'Web App Overview' -Result $webApp
 Add-JsonSection -Builder $builder -Title 'Site Diagnostic Categories' -Result $categories
 Add-JsonSection -Builder $builder -Title 'Site Detector Responses' -Result $detectorResponses
