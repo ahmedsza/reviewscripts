@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$AppServiceName,
@@ -12,7 +12,7 @@ param(
 )
 
 Set-StrictMode -Version 3.0
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'   # allow the script to keep running after non-terminating errors
 
 function Write-StatusMessage {
     param(
@@ -53,8 +53,16 @@ function Get-SafePropertyValue {
 }
 
 function Test-AzureCliPrerequisites {
-    if (-not (Get-Command -Name az -ErrorAction SilentlyContinue)) {
-        throw 'Azure CLI was not found in PATH. Install Azure CLI before running this script.'
+    try {
+        $azCommand = Get-Command -Name az
+        if (-not $azCommand) {
+            throw 'Azure CLI was not found in PATH.'
+        }
+    } catch {
+        Write-Host '[ERROR] Azure CLI was not found in PATH. Install Azure CLI before running this script.' -ForegroundColor Red
+        Write-Warning ('[ERROR] Azure CLI prerequisite check failed: {0}' -f $_)
+        Write-Verbose $_.ScriptStackTrace
+        throw
     }
 }
 
@@ -397,7 +405,15 @@ Test-AzureCliPrerequisites
 Write-StatusMessage -Level 'INFO' -Message ("Starting App Service report for {0} in resource group {1}" -f $AppServiceName, $ResourceGroup)
 
 if (-not (Test-Path -Path $OutputDirectory)) {
-    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+    try {
+        Write-Host ('[INFO ] Creating output directory {0}...' -f $OutputDirectory) -ForegroundColor Cyan
+        New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+        Write-Host '[OK   ] Output directory created.' -ForegroundColor Green
+    } catch {
+        Write-Host ('[ERROR] Failed to create output directory {0}: {1}' -f $OutputDirectory, $_) -ForegroundColor Red
+        Write-Warning ('[ERROR] Failed to create output directory: {0}' -f $_)
+        Write-Verbose $_.ScriptStackTrace
+    }
 }
 
 $results = [System.Collections.Generic.List[object]]::new()
@@ -418,10 +434,39 @@ function Add-QueryResult {
     return $result
 }
 
-$account = Add-QueryResult -Label 'Azure Account' -Arguments @('account', 'show') -Required
-$resourceGroupResult = Assert-ResourceGroupAvailable -AccountResult $account -ResourceGroupName $ResourceGroup
-$results.Add($resourceGroupResult)
-$webApp = Add-QueryResult -Label 'Web App Overview' -Arguments @('webapp', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup) -Required
+Write-Host '[INFO ] Collecting Azure account context...' -ForegroundColor Cyan
+try {
+    $account = Add-QueryResult -Label 'Azure Account' -Arguments @('account', 'show') -Required
+    Write-Host '[OK   ] Azure account context collected.' -ForegroundColor Green
+} catch {
+    Write-Host ('[ERROR] Failed to collect Azure account context: {0}' -f $_) -ForegroundColor Red
+    Write-Warning ('[ERROR] Failed to collect Azure account context: {0}' -f $_)
+    Write-Verbose $_.ScriptStackTrace
+    throw
+}
+
+Write-Host ('[INFO ] Validating resource group {0}...' -f $ResourceGroup) -ForegroundColor Cyan
+try {
+    $resourceGroupResult = Assert-ResourceGroupAvailable -AccountResult $account -ResourceGroupName $ResourceGroup
+    $results.Add($resourceGroupResult)
+    Write-Host ('[OK   ] Resource group {0} validated.' -f $ResourceGroup) -ForegroundColor Green
+} catch {
+    Write-Host ('[ERROR] Resource group validation failed: {0}' -f $_) -ForegroundColor Red
+    Write-Warning ('[ERROR] Resource group validation failed: {0}' -f $_)
+    Write-Verbose $_.ScriptStackTrace
+    throw
+}
+
+Write-Host ('[INFO ] Collecting Web App overview for {0}...' -f $AppServiceName) -ForegroundColor Cyan
+try {
+    $webApp = Add-QueryResult -Label 'Web App Overview' -Arguments @('webapp', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup) -Required
+    Write-Host '[OK   ] Web App overview collected.' -ForegroundColor Green
+} catch {
+    Write-Host ('[ERROR] Failed to collect Web App overview: {0}' -f $_) -ForegroundColor Red
+    Write-Warning ('[ERROR] Failed to collect Web App overview: {0}' -f $_)
+    Write-Verbose $_.ScriptStackTrace
+    throw
+}
 
 $webAppId = $webApp.Data.id
 $planId = if ($webApp.Data.PSObject.Properties['appServicePlanId']) {
@@ -463,15 +508,23 @@ $planDiagnostics = $null
 $planDiagnosticCategories = $null
 
 if ($planId) {
-    $planParts = Split-AzureResourceId -ResourceId $planId
-    $planName = $planParts.serverfarms
-    $planResourceGroup = if ($planParts.resourceGroups) { $planParts.resourceGroups } else { $ResourceGroup }
+    try {
+        Write-Host '[INFO ] Collecting App Service Plan details...' -ForegroundColor Cyan
+        $planParts = Split-AzureResourceId -ResourceId $planId
+        $planName = $planParts.serverfarms
+        $planResourceGroup = if ($planParts.resourceGroups) { $planParts.resourceGroups } else { $ResourceGroup }
 
-    $plan = Add-QueryResult -Label 'App Service Plan Overview' -Arguments @('appservice', 'plan', 'show', '--name', $planName, '--resource-group', $planResourceGroup)
-    $planIdentity = Add-QueryResult -Label 'App Service Plan Identity' -Arguments @('appservice', 'plan', 'identity', 'show', '--name', $planName, '--resource-group', $planResourceGroup)
-    $planResourceView = Add-QueryResult -Label 'App Service Plan ARM Resource' -Arguments @('resource', 'show', '--ids', $planId)
-    $planDiagnostics = Add-QueryResult -Label 'App Service Plan Diagnostic Settings' -Arguments @('monitor', 'diagnostic-settings', 'list', '--resource', $planId)
-    $planDiagnosticCategories = Add-QueryResult -Label 'App Service Plan Diagnostic Categories' -Arguments @('monitor', 'diagnostic-settings', 'categories', 'list', '--resource', $planId)
+        $plan = Add-QueryResult -Label 'App Service Plan Overview' -Arguments @('appservice', 'plan', 'show', '--name', $planName, '--resource-group', $planResourceGroup)
+        $planIdentity = Add-QueryResult -Label 'App Service Plan Identity' -Arguments @('appservice', 'plan', 'identity', 'show', '--name', $planName, '--resource-group', $planResourceGroup)
+        $planResourceView = Add-QueryResult -Label 'App Service Plan ARM Resource' -Arguments @('resource', 'show', '--ids', $planId)
+        $planDiagnostics = Add-QueryResult -Label 'App Service Plan Diagnostic Settings' -Arguments @('monitor', 'diagnostic-settings', 'list', '--resource', $planId)
+        $planDiagnosticCategories = Add-QueryResult -Label 'App Service Plan Diagnostic Categories' -Arguments @('monitor', 'diagnostic-settings', 'categories', 'list', '--resource', $planId)
+        Write-Host '[OK   ] App Service Plan details collected.' -ForegroundColor Green
+    } catch {
+        Write-Host ('[WARN ] Could not collect some App Service Plan details: {0}' -f $_) -ForegroundColor Yellow
+        Write-Warning ('[WARN ] App Service Plan collection partially failed: {0}' -f $_)
+        Write-Verbose $_.ScriptStackTrace
+    }
 }
 
 $slotDetails = [System.Collections.Generic.List[object]]::new()
@@ -486,22 +539,30 @@ if ($slots.Success -and $slots.Data) {
             $slotName = ($slotName -split '/')[-1]
         }
 
-        $slotOverview = Add-QueryResult -Label ("Slot Overview: {0}" -f $slotName) -Arguments @('webapp', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
-        $slotConfig = Add-QueryResult -Label ("Slot Config: {0}" -f $slotName) -Arguments @('webapp', 'config', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
-        $slotAppSettings = Add-QueryResult -Label ("Slot App Settings: {0}" -f $slotName) -Arguments @('webapp', 'config', 'appsettings', 'list', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
-        $slotConnectionStrings = Add-QueryResult -Label ("Slot Connection Strings: {0}" -f $slotName) -Arguments @('webapp', 'config', 'connection-string', 'list', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
-        $slotAuth = Add-QueryResult -Label ("Slot Auth Settings: {0}" -f $slotName) -Arguments @('webapp', 'auth', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
-        $slotIdentity = Add-QueryResult -Label ("Slot Managed Identity: {0}" -f $slotName) -Arguments @('webapp', 'identity', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
+        try {
+            Write-Host (('[INFO ] Collecting details for slot {0}...' -f $slotName)) -ForegroundColor Cyan
+            $slotOverview = Add-QueryResult -Label ("Slot Overview: {0}" -f $slotName) -Arguments @('webapp', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
+            $slotConfig = Add-QueryResult -Label ("Slot Config: {0}" -f $slotName) -Arguments @('webapp', 'config', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
+            $slotAppSettings = Add-QueryResult -Label ("Slot App Settings: {0}" -f $slotName) -Arguments @('webapp', 'config', 'appsettings', 'list', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
+            $slotConnectionStrings = Add-QueryResult -Label ("Slot Connection Strings: {0}" -f $slotName) -Arguments @('webapp', 'config', 'connection-string', 'list', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
+            $slotAuth = Add-QueryResult -Label ("Slot Auth Settings: {0}" -f $slotName) -Arguments @('webapp', 'auth', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
+            $slotIdentity = Add-QueryResult -Label ("Slot Managed Identity: {0}" -f $slotName) -Arguments @('webapp', 'identity', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup, '--slot', $slotName)
 
-        $slotDetails.Add([pscustomobject]@{
-                Name = $slotName
-                Overview = $slotOverview
-                Config = $slotConfig
-                AppSettings = $slotAppSettings
-                ConnectionStrings = $slotConnectionStrings
-                Auth = $slotAuth
-                Identity = $slotIdentity
-            })
+            $slotDetails.Add([pscustomobject]@{
+                    Name = $slotName
+                    Overview = $slotOverview
+                    Config = $slotConfig
+                    AppSettings = $slotAppSettings
+                    ConnectionStrings = $slotConnectionStrings
+                    Auth = $slotAuth
+                    Identity = $slotIdentity
+                })
+            Write-Host (('[OK   ] Slot {0} details collected.' -f $slotName)) -ForegroundColor Green
+        } catch {
+            Write-Host (('[ERROR] Failed to collect details for slot {0}: {1}' -f $slotName, $_)) -ForegroundColor Red
+            Write-Warning ('[ERROR] Slot {0} collection failed: {1}' -f $slotName, $_)
+            Write-Verbose $_.ScriptStackTrace
+        }
     }
 }
 
@@ -603,6 +664,13 @@ if ($slotDetails.Count -gt 0) {
 
 Add-CollectionStatusSection -Builder $builder -Results $results
 
-[System.IO.File]::WriteAllText($reportPath, $builder.ToString(), [System.Text.Encoding]::UTF8)
-Write-StatusMessage -Level 'OK' -Message ("Report written to {0}" -f $reportPath)
-Write-Host ("Report written to {0}" -f $reportPath)
+try {
+    Write-Host ('[INFO ] Writing report to {0}...' -f $reportPath) -ForegroundColor Cyan
+    [System.IO.File]::WriteAllText($reportPath, $builder.ToString(), [System.Text.Encoding]::UTF8)
+    Write-StatusMessage -Level 'OK' -Message ("Report written to {0}" -f $reportPath)
+    Write-Host ('[OK   ] Report written to {0}' -f $reportPath) -ForegroundColor Green
+} catch {
+    Write-Host ('[ERROR] Failed to write report to {0}: {1}' -f $reportPath, $_) -ForegroundColor Red
+    Write-Warning ('[ERROR] Failed to write report file: {0}' -f $_)
+    Write-Verbose $_.ScriptStackTrace
+}

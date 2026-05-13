@@ -16,7 +16,7 @@ param(
 )
 
 Set-StrictMode -Version 3.0
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'   # allow the script to keep running after non-terminating errors
 
 function Write-StatusMessage {
     param(
@@ -28,11 +28,32 @@ function Write-StatusMessage {
     )
 
     $timestamp = Get-Date -Format 'HH:mm:ss'
-    Write-Host ("[{0}] [{1}] {2}" -f $timestamp, $Level, $Message)
+    $color = switch ($Level) {
+        'INFO'  { 'Cyan' }
+        'OK'    { 'Green' }
+        'WARN'  { 'Yellow' }
+        'ERROR' { 'Red' }
+        default { 'White' }
+    }
+    $paddedLevel = switch ($Level) {
+        'INFO'  { '[INFO ]' }
+        'OK'    { '[OK   ]' }
+        'WARN'  { '[WARN ]' }
+        'ERROR' { '[ERROR]' }
+        default { "[$Level]" }
+    }
+    Write-Host ("{0} {1} {2}" -f $timestamp, $paddedLevel, $Message) -ForegroundColor $color
 }
 
 function Test-AzureCliPrerequisites {
-    if (-not (Get-Command -Name az -ErrorAction SilentlyContinue)) {
+    try {
+        $azCmd = Get-Command -Name az
+        if (-not $azCmd) {
+            throw 'Azure CLI was not found in PATH. Install Azure CLI before running this script.'
+        }
+    } catch {
+        Write-Warning "[ERROR] Azure CLI prerequisite check failed: $_"
+        Write-Verbose $_.ScriptStackTrace
         throw 'Azure CLI was not found in PATH. Install Azure CLI before running this script.'
     }
 }
@@ -446,7 +467,14 @@ Test-AzureCliPrerequisites
 Write-StatusMessage -Level 'INFO' -Message ("Starting App Service diagnostics report for {0} in resource group {1}" -f $AppServiceName, $ResourceGroup)
 
 if (-not (Test-Path -Path $OutputDirectory)) {
-    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+    Write-Host "[INFO ] Creating output directory '$OutputDirectory'..." -ForegroundColor Cyan
+    try {
+        New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+        Write-Host "[OK   ] Output directory created." -ForegroundColor Green
+    } catch {
+        Write-Warning "[ERROR] Failed to create output directory '$OutputDirectory': $_"
+        Write-Verbose $_.ScriptStackTrace
+    }
 }
 
 $results = [System.Collections.Generic.List[object]]::new()
@@ -667,6 +695,12 @@ if ($categoryDetails.Count -gt 0) {
 
 Add-CollectionStatusSection -Builder $builder -Results $results
 
-[System.IO.File]::WriteAllText($reportPath, $builder.ToString(), [System.Text.Encoding]::UTF8)
-Write-StatusMessage -Level 'OK' -Message ("Report written to {0}" -f $reportPath)
-Write-Host ("Report written to {0}" -f $reportPath)
+Write-Host "[INFO ] Writing report to '$reportPath'..." -ForegroundColor Cyan
+try {
+    [System.IO.File]::WriteAllText($reportPath, $builder.ToString(), [System.Text.Encoding]::UTF8)
+    Write-StatusMessage -Level 'OK' -Message ("Report written to {0}" -f $reportPath)
+    Write-Host ("Report written to {0}" -f $reportPath)
+} catch {
+    Write-Warning "[ERROR] Failed to write report to '$reportPath': $_"
+    Write-Verbose $_.ScriptStackTrace
+}
