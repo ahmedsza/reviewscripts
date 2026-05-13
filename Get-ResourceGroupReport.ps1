@@ -433,12 +433,12 @@ function Get-TagSummary {
         return ''
     }
 
-    $names = if ($InputObject -is [System.Collections.IDictionary]) {
+    $names = [string[]]$(if ($InputObject -is [System.Collections.IDictionary]) {
         @($InputObject.Keys)
     }
     else {
         @($InputObject.PSObject.Properties.Name)
-    }
+    })
 
     if ($names.Count -eq 0) {
         return ''
