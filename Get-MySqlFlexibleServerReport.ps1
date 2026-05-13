@@ -182,11 +182,7 @@ function Get-RedactedString {
         return $Value
     }
 
-    if ($Value.Length -le 8) {
-        return '[REDACTED]'
-    }
-
-    return '{0}[REDACTED]{1}' -f $Value.Substring(0, 4), $Value.Substring($Value.Length - 2)
+    return 'SECRET_FOUND_REDACTED'
 }
 
 function Protect-Object {
