@@ -359,7 +359,8 @@ $sslCertificates    = Add-QueryResult -Label 'App Service SSL Certificates'    -
 $allWebApps         = Add-QueryResult -Label 'All Web Apps in Resource Group'  -Arguments @('webapp', 'list', '--resource-group', $ResourceGroup)
 
 # App Service Plan
-$plan = $null
+$plan         = $null
+$allPlansInRg = $null
 if ($planId) {
     $planParts = $planId.Trim('/') -split '/'
     $planName  = $null; $planRg = $ResourceGroup

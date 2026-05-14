@@ -68,7 +68,7 @@ function Invoke-AzCliCommand {
     if ($Required -and -not $ok) { Write-StatusMessage -Level ERROR -Message ("Failed {0}" -f $Label); Write-Error ("[CRITICAL] Required data collection failed for '{0}'. Findings for this area will be marked UNKNOWN. Command: {1}. Error: {2}" -f $Label, $cmd, $output) }
     if ($ok) { Write-StatusMessage -Level OK   -Message ("Collected {0} in {1:N1}s" -f $Label, ((Get-Date)-$started).TotalSeconds) }
     else      { Write-StatusMessage -Level WARN -Message ("Could not collect {0} in {1:N1}s" -f $Label, ((Get-Date)-$started).TotalSeconds) }
-    [pscustomobject]@{ Label=$Label; Command=$cmd; Success=$ok; ExitCode=$exit; ErrorMessage=if($ok){$null}else{$output}; Data=$data }
+    [pscustomobject]@{ Label=$Label; Command=$cmd; Success=$ok; ExitCode=$exit; ErrorMessage=$(if($ok){$null}else{$output}); Data=$data }
 }
 
 function Test-SensitiveName { param([AllowNull()][string]$Name); if ([string]::IsNullOrWhiteSpace($Name)) { return $false }; return $Name -match '(?i)(password|passwd|pwd|secret|token|connectionstring|accountkey|sharedaccesskey|sharedkey|clientsecret|publishingpassword|sas|instrumentationkey)' }

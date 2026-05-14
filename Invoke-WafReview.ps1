@@ -221,7 +221,7 @@ foreach ($key in $scripts.Keys) {
     $newFile     = $afterFiles | Where-Object { $beforeFiles -notcontains $_ } | Select-Object -First 1
 
     $status = if ($null -ne $scriptError) { 'Completed with errors' } else { 'OK' }
-    Write-StepResult -Name $key -Success ($null -eq $scriptError) -Detail ($scriptError ?? '')
+    Write-StepResult -Name $key -Success ($null -eq $scriptError) -Detail (if ($scriptError) { $scriptError } else { '' })
     $results[$key] = @{ Status = $status; Error = $scriptError; ReportFile = $newFile }
 }
 
