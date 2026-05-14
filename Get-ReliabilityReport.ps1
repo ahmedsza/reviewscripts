@@ -423,7 +423,7 @@ $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Reco
 
 # CanNotDelete lock
 if ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data).Count-gt 0) {
-    $delLock = @($mysqlLock.Data|Where-Object{$_.properties.level -eq 'CanNotDelete' -or $_.level -eq 'CanNotDelete'})
+    $delLock = @($mysqlLock.Data|Where-Object{$_?.properties?.level -eq 'CanNotDelete' -or $_.level -eq 'CanNotDelete'})
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is the deleted server recovery window documented — with CanNotDelete lock applied?' -Priority 1 -Status (if($delLock.Count-gt 0){'PASS'}else{'WARN'}) -Notes ("{0} lock(s) on MySQL server; {1} CanNotDelete lock(s). MySQL servers deleted accidentally have a 5-day recovery window." -f @($mysqlLock.Data).Count,$delLock.Count)))
 } elseif ($mysqlLock.Success) {
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is the deleted server recovery window documented — with CanNotDelete lock applied?' -Priority 1 -Status 'FAIL' -Notes 'No locks found on MySQL Flexible Server. Apply a CanNotDelete lock to prevent accidental deletion.'))
@@ -529,7 +529,7 @@ $summary = [ordered]@{
     'App Insights Present'             = $hasAppInsights
     'Redis Present'                    = $hasRedis
     'CDN/AFD Present'                  = $hasCdn
-    'CanNotDelete Lock on MySQL'       = ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data|Where-Object{$_.level-eq'CanNotDelete'-or$_.properties.level-eq'CanNotDelete'}).Count-gt 0)
+    'CanNotDelete Lock on MySQL'       = ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data|Where-Object{$_.level-eq'CanNotDelete'-or$_?.properties?.level-eq'CanNotDelete'}).Count-gt 0)
     'DISABLE_WP_CRON'                  = $disableWpCron
 }
 

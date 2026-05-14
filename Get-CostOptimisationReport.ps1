@@ -510,7 +510,7 @@ function Get-MetricMax {
 
 # Advisor cost recommendations
 if ($advisorCost.Success -and $advisorCost.Data) {
-    $openRecs = @($advisorCost.Data | Where-Object { $null -eq $_.properties.suppressionIds -or @($_.properties.suppressionIds).Count -eq 0 })
+    $openRecs = @($advisorCost.Data | Where-Object { $null -eq $_?.properties?.suppressionIds -or @($_?.properties?.suppressionIds).Count -eq 0 })
     if ($openRecs.Count -eq 0) {
         $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:01 Financial Responsibility Culture' -Question 'Are Azure Advisor cost recommendations reviewed and acted on regularly?' -Priority 3 -Status 'PASS' -Notes 'No open Advisor cost recommendations found in resource group.'))
     } else {
