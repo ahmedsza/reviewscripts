@@ -73,7 +73,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ResourceGroup,
 
-    [string]$OutputDirectory = (Get-Location).Path,
+    [string]$OutputDirectory,
 
     [string]$Subscription,
 
@@ -116,7 +116,10 @@ function Write-StepResult {
 # ---------------------------------------------------------------------------
 $scriptDir = $PSScriptRoot
 
-# Ensure output directory exists
+# Resolve output directory — create a timestamped folder if none was supplied
+if (-not $OutputDirectory) {
+    $OutputDirectory = Join-Path (Get-Location).Path ('output_{0}' -f (Get-Date -Format 'ddMMyyyyHHmm'))
+}
 if (-not (Test-Path -Path $OutputDirectory)) {
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
     Write-Host "Created output directory: $OutputDirectory" -ForegroundColor Yellow

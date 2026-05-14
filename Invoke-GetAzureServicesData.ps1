@@ -53,7 +53,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DatabaseName,
 
-    [string]$OutputDirectory = (Get-Location).Path,
+    [string]$OutputDirectory,
 
     [string]$Subscription,
 
@@ -64,6 +64,15 @@ param(
 )
 
 $ScriptDir = $PSScriptRoot
+
+# Create a timestamped output folder if no explicit directory was supplied
+if (-not $OutputDirectory) {
+    $OutputDirectory = Join-Path (Get-Location).Path ('output_{0}' -f (Get-Date -Format 'ddMMyyyyHHmm'))
+}
+if (-not (Test-Path -Path $OutputDirectory)) {
+    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+    Write-Host "Created output directory: $OutputDirectory" -ForegroundColor Yellow
+}
 
 function Invoke-Script {
     param(
