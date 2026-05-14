@@ -520,7 +520,16 @@ $subscriptionId = $account.Data.id
 $apiVersion = '2025-05-01'
 $basePath = Get-DiagnosticsBasePath -SubscriptionId $subscriptionId -CurrentResourceGroup $ResourceGroup -CurrentAppServiceName $AppServiceName -CurrentSlot $Slot
 
-$categories = Add-RestResult -Label 'Site Diagnostic Categories' -RelativePath ("{0}/diagnostics?api-version={1}" -f $basePath, $apiVersion)
+# The /diagnostics categories endpoint is only supported on Windows App Service.
+# Linux apps (including WordPress on App Service Linux) return 404 for this call.
+$isLinux = $webApp.Success -and $webApp.Data -and ([string]$webApp.Data.kind -match 'linux')
+if ($isLinux) {
+    Write-Host "[INFO ] Skipping Site Diagnostic Categories — not supported on Linux App Service" -ForegroundColor DarkGray
+    $categories = [pscustomobject]@{ Label = 'Site Diagnostic Categories'; Success = $false; Data = $null; ErrorMessage = 'Not supported on Linux App Service' }
+    $results.Add($categories)
+} else {
+    $categories = Add-RestResult -Label 'Site Diagnostic Categories' -RelativePath ("{0}/diagnostics?api-version={1}" -f $basePath, $apiVersion)
+}
 $detectorResponses = Add-RestResult -Label 'Site Detector Responses' -RelativePath ("{0}/detectors?api-version={1}" -f $basePath, $apiVersion)
 
 $categoryDetails = [System.Collections.Generic.List[object]]::new()

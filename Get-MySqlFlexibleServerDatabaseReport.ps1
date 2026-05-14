@@ -468,12 +468,10 @@ $lowerCaseTableNamesParameter = Add-QueryResult -Label 'MySQL Flexible Server Pa
 $firewallRules = Add-QueryResult -Label 'MySQL Flexible Server Firewall Rules' -Arguments @('mysql', 'flexible-server', 'firewall-rule', 'list', '--name', $ServerName, '--resource-group', $ResourceGroup)
 $entraAdmins = Add-QueryResult -Label 'MySQL Flexible Server Entra Admins' -Arguments @('mysql', 'flexible-server', 'ad-admin', 'list', '--server-name', $ServerName, '--resource-group', $ResourceGroup)
 $replicas = Add-QueryResult -Label 'MySQL Flexible Server Replicas' -Arguments @('mysql', 'flexible-server', 'replica', 'list', '--name', $ServerName, '--resource-group', $ResourceGroup)
-$serverLogs = Add-QueryResult -Label 'MySQL Flexible Server Logs' -Arguments @('mysql', 'flexible-server', 'server-logs', 'list', '--name', $ServerName, '--resource-group', $ResourceGroup)
+$serverLogs = Add-QueryResult -Label 'MySQL Flexible Server Logs' -Arguments @('mysql', 'flexible-server', 'server-logs', 'list', '--server-name', $ServerName, '--resource-group', $ResourceGroup)
 $backups = Add-QueryResult -Label 'MySQL Flexible Server Backups' -Arguments @('mysql', 'flexible-server', 'backup', 'list', '--name', $ServerName, '--resource-group', $ResourceGroup)
-$maintenance = Add-QueryResult -Label 'MySQL Flexible Server Maintenance Window' -Arguments @('mysql', 'flexible-server', 'maintenance', 'show', '--name', $ServerName, '--resource-group', $ResourceGroup)
-$maintenanceHistory = Add-QueryResult -Label 'MySQL Flexible Server Maintenance History' -Arguments @('mysql', 'flexible-server', 'maintenance', 'list', '--name', $ServerName, '--resource-group', $ResourceGroup)
-$identity = Add-QueryResult -Label 'MySQL Flexible Server Identity' -Arguments @('mysql', 'flexible-server', 'identity', 'show', '--name', $ServerName, '--resource-group', $ResourceGroup)
-$identityList = Add-QueryResult -Label 'MySQL Flexible Server Identity List' -Arguments @('mysql', 'flexible-server', 'identity', 'list', '--name', $ServerName, '--resource-group', $ResourceGroup)
+$maintenanceHistory = Add-QueryResult -Label 'MySQL Flexible Server Maintenance History' -Arguments @('mysql', 'flexible-server', 'maintenance', 'list', '--server-name', $ServerName, '--resource-group', $ResourceGroup)
+$identityList = Add-QueryResult -Label 'MySQL Flexible Server Identity List' -Arguments @('mysql', 'flexible-server', 'identity', 'list', '--server-name', $ServerName, '--resource-group', $ResourceGroup)
 $threatProtection = Add-QueryResult -Label 'MySQL Flexible Server Threat Protection' -Arguments @('mysql', 'flexible-server', 'advanced-threat-protection-setting', 'show', '--name', $ServerName, '--resource-group', $ResourceGroup)
 $connectionString = Add-QueryResult -Label 'MySQL Flexible Server Connection String For Database' -Arguments @('mysql', 'flexible-server', 'show-connection-string', '--server-name', $ServerName, '--admin-user', (Get-SafePropertyValue -InputObject $server.Data -Path @('administratorLogin')), '--database-name', $DatabaseName)
 $privateEndpoints = Get-AssociatedPrivateEndpoints -ServerResourceId $serverId -CurrentResourceGroup $ResourceGroup
@@ -542,9 +540,7 @@ Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Entra Admins' -R
 Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Replicas' -Result $replicas
 Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Logs' -Result $serverLogs
 Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Backups' -Result $backups
-Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Maintenance Window' -Result $maintenance
 Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Maintenance History' -Result $maintenanceHistory
-Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Identity' -Result $identity
 Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Identity List' -Result $identityList
 Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Threat Protection' -Result $threatProtection
 Add-JsonSection -Builder $builder -Title 'MySQL Flexible Server Connection String For Database' -Result $connectionString
