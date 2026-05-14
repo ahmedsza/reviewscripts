@@ -665,7 +665,8 @@ function Get-RecentDeploymentOperationResult {
         }
 
         $result = Invoke-AzCliCommand -Label ('Deployment Operations: {0}' -f $deployment.name) -Arguments @('deployment', 'group', 'operation', 'list', '--resource-group', $CurrentResourceGroup, '--name', $deployment.name)
-        if (-not $result.Success) {
+        # Azure prunes operation history for older/completed deployments — treat as empty, not a failure
+        if (-not $result.Success -and $result.ErrorMessage -notmatch 'DeploymentOperationNotFound|Operation history is not available') {
             $allSucceeded = $false
         }
 
@@ -817,8 +818,7 @@ $policyAssignments = Add-QueryResult -Label 'Policy Assignments At Scope' -Argum
 $policyExemptions = Add-QueryResult -Label 'Policy Exemptions At Scope' -Arguments @('policy', 'exemption', 'list', '--scope', $resourceGroupId)
 $policySummary = Add-QueryResult -Label 'Policy Compliance Summary' -Arguments @('policy', 'state', 'summarize', '--resource-group', $ResourceGroup)
 $roleAssignments = Add-QueryResult -Label 'Role Assignments At Scope' -Arguments @('role', 'assignment', 'list', '--scope', $resourceGroupId, '--include-inherited')
-$diagnosticSettings = Add-QueryResult -Label 'Resource Group Diagnostic Settings' -Arguments @('monitor', 'diagnostic-settings', 'list', '--resource', $resourceGroupId)
-$diagnosticCategories = Add-QueryResult -Label 'Resource Group Diagnostic Categories' -Arguments @('monitor', 'diagnostic-settings', 'categories', 'list', '--resource', $resourceGroupId)
+# Note: Resource groups do not support diagnostic settings (ResourceTypeNotSupported) — activity log covers this instead
 $activityLog = Add-QueryResult -Label 'Resource Group Activity Log' -Arguments @('monitor', 'activity-log', 'list', '--resource-group', $ResourceGroup, '--offset', ('{0}d' -f $ActivityLogDays), '--max-events', $ActivityLogMaxEvents)
 $advisorRecommendations = Add-QueryResult -Label 'Advisor Recommendations For Resource Group' -Arguments @('advisor', 'recommendation', 'list', '--resource-group', $ResourceGroup)
 $armExport = Add-QueryResult -Label 'Resource Group ARM Export' -Arguments @('group', 'export', '--name', $ResourceGroup, '--include-parameter-default-value')
@@ -891,8 +891,6 @@ Add-JsonSection -Builder $builder -Title 'Policy Assignments At Scope' -Result $
 Add-JsonSection -Builder $builder -Title 'Policy Exemptions At Scope' -Result $policyExemptions
 Add-JsonSection -Builder $builder -Title 'Policy Compliance Summary' -Result $policySummary
 Add-JsonSection -Builder $builder -Title 'Role Assignments At Scope' -Result $roleAssignments
-Add-JsonSection -Builder $builder -Title 'Resource Group Diagnostic Settings' -Result $diagnosticSettings
-Add-JsonSection -Builder $builder -Title 'Resource Group Diagnostic Categories' -Result $diagnosticCategories
 Add-JsonSection -Builder $builder -Title 'Resource Group Activity Log' -Result $activityLog
 Add-JsonSection -Builder $builder -Title 'Advisor Recommendations For Resource Group' -Result $advisorRecommendations
 Add-JsonSection -Builder $builder -Title 'Resource Group ARM Export' -Result $armExport
