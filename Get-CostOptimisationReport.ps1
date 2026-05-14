@@ -101,7 +101,7 @@ function Invoke-AzCliCommand {
     $success = $exitCode -eq 0
     if ($Required -and -not $success) {
         Write-StatusMessage -Level 'ERROR' -Message ("Failed {0} after {1:N1}s" -f $Label, ((Get-Date) - $started).TotalSeconds)
-        throw "Required Azure CLI command failed for '$Label': $rawOutput"
+        Write-Error ("[CRITICAL] Required data collection failed for '{0}'. Findings for this area will be marked UNKNOWN. Command: {1}. Error: {2}" -f $Label, $commandText, $rawOutput)
     }
     if ($success) {
         Write-StatusMessage -Level 'OK' -Message ("Collected {0} in {1:N1}s" -f $Label, ((Get-Date) - $started).TotalSeconds)
@@ -239,7 +239,7 @@ function Assert-ResourceGroupAvailable {
         $subName  = Get-SafePropertyValue -InputObject $AccountResult.Data -Path @('name')
         $subId    = Get-SafePropertyValue -InputObject $AccountResult.Data -Path @('id')
         $effective = if ($Subscription) { $Subscription } elseif ($subId) { $subId } else { '(unknown)' }
-        throw ("Resource group '{0}' was not found. Active subscription: {1} ({2}). Effective: {3}. Error: {4}" -f $ResourceGroupName, $subName, $subId, $effective, $resourceGroupResult.ErrorMessage)
+        Write-Error ("[CRITICAL] Resource group '{0}' was not found. Active subscription: {1} ({2}). Effective: {3}. Script will continue but all resource data will be unavailable. Error: {4}" -f $ResourceGroupName, $subName, $subId, $effective, $resourceGroupResult.ErrorMessage)
     }
     return $resourceGroupResult
 }

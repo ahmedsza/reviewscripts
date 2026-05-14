@@ -61,7 +61,7 @@ function Invoke-AzCliCommand {
     $data = $null
     if ($output) { try { $data = $output | ConvertFrom-Json -Depth 100 } catch { $data = $output } }
     $ok = $exit -eq 0
-    if ($Required -and -not $ok) { Write-StatusMessage -Level ERROR -Message ("Failed {0}" -f $Label); throw "Required command failed for '$Label': $output" }
+    if ($Required -and -not $ok) { Write-StatusMessage -Level ERROR -Message ("Failed {0}" -f $Label); Write-Error ("[CRITICAL] Required data collection failed for '{0}'. Findings for this area will be marked UNKNOWN. Command: {1}. Error: {2}" -f $Label, $cmd, $output) }
     if ($ok) { Write-StatusMessage -Level OK   -Message ("Collected {0} in {1:N1}s" -f $Label, ((Get-Date)-$started).TotalSeconds) }
     else      { Write-StatusMessage -Level WARN -Message ("Could not collect {0} in {1:N1}s" -f $Label, ((Get-Date)-$started).TotalSeconds) }
     [pscustomobject]@{ Label=$Label; Command=$cmd; Success=$ok; ExitCode=$exit; ErrorMessage=if($ok){$null}else{$output}; Data=$data }
@@ -110,7 +110,7 @@ function Add-CollectionStatusSection {
 function Assert-ResourceGroupAvailable {
     param([Parameter(Mandatory)]$AccountResult, [Parameter(Mandatory)][string]$ResourceGroupName)
     $r = Invoke-AzCliCommand -Label 'Resource Group Overview' -Arguments @('group','show','--name',$ResourceGroupName)
-    if (-not $r.Success) { throw ("Resource group '{0}' was not found. Error: {1}" -f $ResourceGroupName, $r.ErrorMessage) }
+    if (-not $r.Success) { Write-Error ("[CRITICAL] Resource group '{0}' was not found. Script will continue but all resource data will be unavailable. Error: {1}" -f $ResourceGroupName, $r.ErrorMessage) }
     return $r
 }
 
