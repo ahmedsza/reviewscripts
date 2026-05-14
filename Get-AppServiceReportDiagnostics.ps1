@@ -522,10 +522,10 @@ $basePath = Get-DiagnosticsBasePath -SubscriptionId $subscriptionId -CurrentReso
 
 # The /diagnostics categories endpoint is only supported on Windows App Service.
 # Linux apps (including WordPress on App Service Linux) return 404 for this call.
-$isLinux = $webApp.Success -and $webApp.Data -and ([string]$webApp.Data.kind -match 'linux')
-if ($isLinux) {
+$appIsLinux = $webApp.Success -and $webApp.Data -and ([string]$webApp.Data.kind -match 'linux')
+if ($appIsLinux) {
     Write-Host "[INFO ] Skipping Site Diagnostic Categories — not supported on Linux App Service" -ForegroundColor DarkGray
-    $categories = [pscustomobject]@{ Label = 'Site Diagnostic Categories'; Success = $false; Data = $null; ErrorMessage = 'Not supported on Linux App Service' }
+    $categories = [pscustomobject]@{ Label = 'Site Diagnostic Categories'; Command = 'skipped'; Success = $false; ExitCode = $null; Data = $null; ErrorMessage = 'Not supported on Linux App Service' }
     $results.Add($categories)
 } else {
     $categories = Add-RestResult -Label 'Site Diagnostic Categories' -RelativePath ("{0}/diagnostics?api-version={1}" -f $basePath, $apiVersion)
