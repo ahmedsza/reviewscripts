@@ -17,7 +17,10 @@ param(
     [int]$MetricLookbackDays = 30,
 
     # Optional: Azure Front Door resource group if different from $ResourceGroup.
-    [string]$AfdResourceGroup
+    [string]$AfdResourceGroup,
+
+    # Skip the slow subscription-wide reservations API call (enabled by default).
+    [bool]$SkipReservations = $true
 )
 
 Set-StrictMode -Version 3.0
@@ -460,7 +463,12 @@ $budgets            = Add-QueryResult -Label 'Subscription Budgets'           -A
 $advisorCost        = Add-QueryResult -Label 'Azure Advisor Cost Recommendations' -Arguments @('advisor', 'recommendation', 'list', '--resource-group', $ResourceGroup, '--category', 'Cost')
 $policyAssignments  = Add-QueryResult -Label 'Resource Group Policy Assignments'  -Arguments @('policy', 'assignment', 'list', '--resource-group', $ResourceGroup)
 $resourceTags       = Add-QueryResult -Label 'Resource Group Resource Tags'       -Arguments @('resource', 'list', '--resource-group', $ResourceGroup, '--query', '[].{name:name,type:type,tags:tags}')
-$reservations       = Add-QueryResult -Label 'Subscription Reservations'          -Arguments @('reservations', 'reservation-order', 'list')
+if ($SkipReservations) {
+    Write-StatusMessage -Level 'INFO' -Message 'Skipping Subscription Reservations (use -SkipReservations $false to enable)'
+    $reservations = $null
+} else {
+    $reservations = Add-QueryResult -Label 'Subscription Reservations' -Arguments @('reservations', 'reservation-order', 'list')
+}
 
 # ---------------------------------------------------------------------------
 # SECTION 5 — Supporting infrastructure
@@ -1169,7 +1177,7 @@ Add-JsonSection -Builder $builder -Title 'Subscription Budgets'                 
 Add-JsonSection -Builder $builder -Title 'Azure Advisor Cost Recommendations'               -Result $advisorCost
 Add-JsonSection -Builder $builder -Title 'Resource Group Policy Assignments'                -Result $policyAssignments
 Add-JsonSection -Builder $builder -Title 'Resource Group Resource Tags'                     -Result $resourceTags
-Add-JsonSection -Builder $builder -Title 'Subscription Reservations'                        -Result $reservations
+if ($null -ne $reservations) { Add-JsonSection -Builder $builder -Title 'Subscription Reservations' -Result $reservations }
 Add-JsonSection -Builder $builder -Title 'Azure Cache for Redis Instances'                  -Result $redisList
 Add-JsonSection -Builder $builder -Title 'Azure Front Door Profiles'                        -Result $afdProfiles
 Add-JsonSection -Builder $builder -Title 'Azure CDN Profiles'                               -Result $cdnProfiles
