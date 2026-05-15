@@ -14,7 +14,7 @@ param(
     [string]$Subscription
 )
 
-Set-StrictMode -Version 3.0
+Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 # ---------------------------------------------------------------------------
@@ -93,17 +93,38 @@ function Add-KeyValueTable {
 
 function Add-JsonSection {
     param([Parameter(Mandatory)][System.Text.StringBuilder]$Builder, [Parameter(Mandatory)][string]$Title, [int]$HeadingLevel=2, [Parameter(Mandatory)]$Result)
-    $h='#'*$HeadingLevel
-    Add-MarkdownLine -Builder $Builder -Text ('{0} {1}' -f $h,$Title); Add-MarkdownLine -Builder $Builder -Text ('Command: `{0}`' -f $Result.Command); Add-MarkdownLine -Builder $Builder
-    if (-not $Result.Success) { Add-MarkdownLine -Builder $Builder -Text 'Status: failed'; Add-MarkdownLine -Builder $Builder -Text ('Error: `{0}`' -f (ConvertTo-MarkdownText $Result.ErrorMessage)); Add-MarkdownLine -Builder $Builder; return }
-    if ($null -eq $Result.Data) { Add-MarkdownLine -Builder $Builder -Text 'Status: succeeded, no data returned.'; Add-MarkdownLine -Builder $Builder; return }
-    Add-MarkdownLine -Builder $Builder -Text '```json'; Add-MarkdownLine -Builder $Builder -Text (Protect-Object -InputObject $Result.Data | ConvertTo-Json -Depth 100); Add-MarkdownLine -Builder $Builder -Text '```'; Add-MarkdownLine -Builder $Builder
+    try {
+        $h='#'*$HeadingLevel
+        $command = Get-SafePropertyValue -InputObject $Result -Path @('Command')
+        $success = Get-SafePropertyValue -InputObject $Result -Path @('Success')
+        $errorMessage = Get-SafePropertyValue -InputObject $Result -Path @('ErrorMessage')
+        $data = Get-SafePropertyValue -InputObject $Result -Path @('Data')
+        Add-MarkdownLine -Builder $Builder -Text ('{0} {1}' -f $h,$Title); Add-MarkdownLine -Builder $Builder -Text ('Command: `{0}`' -f $command); Add-MarkdownLine -Builder $Builder
+        if (-not $success) { Add-MarkdownLine -Builder $Builder -Text 'Status: failed'; Add-MarkdownLine -Builder $Builder -Text ('Error: `{0}`' -f (ConvertTo-MarkdownText $errorMessage)); Add-MarkdownLine -Builder $Builder; return }
+        if ($null -eq $data) { Add-MarkdownLine -Builder $Builder -Text 'Status: succeeded, no data returned.'; Add-MarkdownLine -Builder $Builder; return }
+        Add-MarkdownLine -Builder $Builder -Text '```json'; Add-MarkdownLine -Builder $Builder -Text (Protect-Object -InputObject $data | ConvertTo-Json -Depth 100); Add-MarkdownLine -Builder $Builder -Text '```'; Add-MarkdownLine -Builder $Builder
+    } catch {
+        Write-StatusMessage -Level WARN -Message ("Could not write raw data section '{0}': {1}. Continuing." -f $Title, $_.Exception.Message)
+        Add-MarkdownLine -Builder $Builder -Text ('## {0}' -f $Title); Add-MarkdownLine -Builder $Builder -Text ('Status: could not render section. Error: `{0}`' -f (ConvertTo-MarkdownText $_.Exception.Message)); Add-MarkdownLine -Builder $Builder
+    }
 }
 
 function Add-CollectionStatusSection {
     param([Parameter(Mandatory)][System.Text.StringBuilder]$Builder, [Parameter(Mandatory)][System.Collections.Generic.List[object]]$Results)
     Add-MarkdownLine -Builder $Builder -Text '## Collection Status'; Add-MarkdownLine -Builder $Builder -Text '| Section | Success | Exit Code | Notes |'; Add-MarkdownLine -Builder $Builder -Text '| --- | --- | --- | --- |'
-    foreach ($r in $Results) { Add-MarkdownLine -Builder $Builder -Text ('| {0} | {1} | {2} | {3} |' -f (ConvertTo-MarkdownText $r.Label),$r.Success,$r.ExitCode,(ConvertTo-MarkdownText (if($r.Success){'Collected'}else{$r.ErrorMessage}))) }
+    foreach ($r in $Results) {
+        try {
+            $label = Get-SafePropertyValue -InputObject $r -Path @('Label')
+            $success = Get-SafePropertyValue -InputObject $r -Path @('Success')
+            $exitCode = Get-SafePropertyValue -InputObject $r -Path @('ExitCode')
+            $errorMessage = Get-SafePropertyValue -InputObject $r -Path @('ErrorMessage')
+            $notes = if ($success) { 'Collected' } else { $errorMessage }
+            Add-MarkdownLine -Builder $Builder -Text ('| {0} | {1} | {2} | {3} |' -f (ConvertTo-MarkdownText $label),$success,$exitCode,(ConvertTo-MarkdownText $notes))
+        } catch {
+            Write-StatusMessage -Level WARN -Message ("Could not write a collection status row: {0}. Continuing." -f $_.Exception.Message)
+            Add-MarkdownLine -Builder $Builder -Text ('| Unknown | False |  | Could not render status row: {0} |' -f (ConvertTo-MarkdownText $_.Exception.Message))
+        }
+    }
     Add-MarkdownLine -Builder $Builder
 }
 
@@ -146,12 +167,37 @@ function Add-OeAssessmentSection {
 # Script entry point
 # ---------------------------------------------------------------------------
 Test-AzureCliPrerequisites
+
+trap {
+    Write-StatusMessage -Level WARN -Message ("Unexpected non-fatal error: {0}. Continuing with the next Operational Excellence action." -f $_.Exception.Message)
+    continue
+}
+
 if (-not (Test-Path -Path $OutputDirectory)) { New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null }
 
 $results = [System.Collections.Generic.List[object]]::new()
+function New-UnavailableResult {
+    param([Parameter(Mandatory)][string]$Label, [AllowNull()][object[]]$Arguments, [Parameter(Mandatory)][string]$Message)
+    $argumentText = (($Arguments | ForEach-Object { if ($null -eq $_ -or [string]::IsNullOrWhiteSpace([string]$_)) { '<missing>' } else { [string]$_ } }) -join ' ').Trim()
+    $commandText = if ($argumentText) { 'az {0}' -f $argumentText } else { 'not run' }
+    Write-StatusMessage -Level WARN -Message ("{0}: {1}" -f $Label, $Message)
+    [pscustomobject]@{ Label=$Label; Command=$commandText; Success=$false; ExitCode=$null; ErrorMessage=$Message; Data=$null }
+}
+
 function Add-QueryResult {
     param([Parameter(Mandatory)][string]$Label, [Parameter(Mandatory)][string[]]$Arguments, [switch]$Required)
-    $r = Invoke-AzCliCommand -Label $Label -Arguments $Arguments -Required:$Required; $results.Add($r); return $r
+    try { $r = Invoke-AzCliCommand -Label $Label -Arguments $Arguments -Required:$Required }
+    catch { $r = New-UnavailableResult -Label $Label -Arguments $Arguments -Message ("Could not collect this information. {0}" -f $_.Exception.Message) }
+    $results.Add($r); return $r
+}
+
+function Add-QueryResultWhenValuePresent {
+    param([Parameter(Mandatory)][string]$Label, [Parameter(Mandatory)][AllowNull()][object[]]$Arguments, [AllowNull()][string]$Value, [Parameter(Mandatory)][string]$RequiredValueName)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        $r = New-UnavailableResult -Label $Label -Arguments $Arguments -Message ("Could not find {0}; {1} was not run." -f $RequiredValueName, $Label)
+        $results.Add($r); return $r
+    }
+    return Add-QueryResult -Label $Label -Arguments $Arguments
 }
 
 Write-StatusMessage -Level INFO -Message ("Starting operational excellence review for [{0}] and MySQL [{1}] in [{2}]" -f $AppServiceName,$MySqlServerName,$ResourceGroup)
@@ -164,15 +210,17 @@ $rgResult   = Assert-ResourceGroupAvailable -AccountResult $account -ResourceGro
 $results.Add($rgResult)
 
 $webApp     = Add-QueryResult -Label 'App Service Overview'       -Arguments @('webapp','show','--name',$AppServiceName,'--resource-group',$ResourceGroup) -Required
-$webAppId   = $webApp.Data.id
-$planId     = if ($webApp.Data.PSObject.Properties['serverFarmId']) { $webApp.Data.serverFarmId } else { $null }
+$webAppId   = Get-SafePropertyValue -InputObject $webApp.Data -Path @('id')
+$planId     = Get-SafePropertyValue -InputObject $webApp.Data -Path @('serverFarmId')
+if (-not $webAppId) { Write-StatusMessage -Level WARN -Message 'Could not find App Service resource ID. Dependent App Service diagnostic data will be marked unavailable.' }
+if (-not $planId) { Write-StatusMessage -Level WARN -Message 'Could not find App Service plan ID. Plan and autoscale details will be marked unavailable.' }
 
 $siteConfig = Add-QueryResult -Label 'App Service Site Config'    -Arguments @('webapp','config','show','--name',$AppServiceName,'--resource-group',$ResourceGroup)
 $appSettings= Add-QueryResult -Label 'App Service App Settings'   -Arguments @('webapp','config','appsettings','list','--name',$AppServiceName,'--resource-group',$ResourceGroup)
 $slots      = Add-QueryResult -Label 'App Service Deployment Slots'-Arguments @('webapp','deployment','slot','list','--name',$AppServiceName,'--resource-group',$ResourceGroup)
 $hostnameBindings = Add-QueryResult -Label 'App Service Hostname Bindings' -Arguments @('webapp','config','hostname','list','--webapp-name',$AppServiceName,'--resource-group',$ResourceGroup)
 $sslCerts   = Add-QueryResult -Label 'App Service SSL Certificates' -Arguments @('webapp','config','ssl','list','--resource-group',$ResourceGroup)
-$appDiagSettings = Add-QueryResult -Label 'App Service Diagnostic Settings' -Arguments @('monitor','diagnostic-settings','list','--resource',$webAppId)
+$appDiagSettings = Add-QueryResultWhenValuePresent -Label 'App Service Diagnostic Settings' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('monitor','diagnostic-settings','list','--resource',$webAppId)
 
 # App Service Plan
 $plan = $null; $autoscaleSettings = $null
@@ -202,8 +250,9 @@ $advisorRecs       = Add-QueryResult -Label 'Azure Advisor Recommendations'     
 
 # MySQL
 $mysqlServer       = Add-QueryResult -Label 'MySQL Flexible Server Overview'    -Arguments @('mysql','flexible-server','show','--name',$MySqlServerName,'--resource-group',$ResourceGroup) -Required
-$mysqlServerId     = $mysqlServer.Data.id
-$mysqlDiagSettings = Add-QueryResult -Label 'MySQL Diagnostic Settings'          -Arguments @('monitor','diagnostic-settings','list','--resource',$mysqlServerId)
+$mysqlServerId     = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('id')
+if (-not $mysqlServerId) { Write-StatusMessage -Level WARN -Message 'Could not find MySQL Flexible Server resource ID. Dependent MySQL diagnostic data will be marked unavailable.' }
+$mysqlDiagSettings = Add-QueryResultWhenValuePresent -Label 'MySQL Diagnostic Settings' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @('monitor','diagnostic-settings','list','--resource',$mysqlServerId)
 $mysqlAdmins       = Add-QueryResult -Label 'MySQL Entra Admins'                 -Arguments @('mysql','flexible-server','ad-admin','list','--server-name',$MySqlServerName,'--resource-group',$ResourceGroup)
 $mysqlFirewallRules= Add-QueryResult -Label 'MySQL Firewall Rules'                -Arguments @('mysql','flexible-server','firewall-rule','list','--name',$MySqlServerName,'--resource-group',$ResourceGroup)
 $mysqlReplicas     = Add-QueryResult -Label 'MySQL Replicas'                      -Arguments @('mysql','flexible-server','replica','list','--name',$MySqlServerName,'--resource-group',$ResourceGroup)
@@ -251,7 +300,7 @@ if ($paramMaintenanceWin.Success -and $paramMaintenanceWin.Data) {
 # ---- OE:05 Infrastructure as Code ----
 # CanNotDelete lock — P1
 if ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data).Count-gt 0) {
-    $delLock = @($mysqlLock.Data|Where-Object{$_.properties.level -eq 'CanNotDelete' -or $_.level -eq 'CanNotDelete'})
+    $delLock = @($mysqlLock.Data|Where-Object{(Get-SafePropertyValue -InputObject $_ -Path @('properties','level')) -eq 'CanNotDelete' -or (Get-SafePropertyValue -InputObject $_ -Path @('level')) -eq 'CanNotDelete'})
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:05 Infrastructure as Code' -Question 'Is a CanNotDelete management lock applied in IaC?' -Priority 1 -Status $(if($delLock.Count-gt 0){'PASS'}else{'FAIL'}) -Notes ("{0} lock(s) on MySQL server; {1} CanNotDelete. A CanNotDelete lock on the MySQL Flexible Server prevents accidental deletion." -f @($mysqlLock.Data).Count,$delLock.Count)))
 } elseif ($mysqlLock.Success) {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:05 Infrastructure as Code' -Question 'Is a CanNotDelete management lock applied in IaC?' -Priority 1 -Status 'FAIL' -Notes 'No locks found on MySQL Flexible Server. Apply a CanNotDelete lock via IaC.'))
@@ -397,7 +446,7 @@ if ($policyAssignments.Success -and $policyAssignments.Data -and @($policyAssign
 
 # Advisor recommendations
 if ($advisorRecs.Success -and $advisorRecs.Data) {
-    $openRecs = @($advisorRecs.Data|Where-Object{$null -eq $_.properties.suppressionIds -or @($_.properties.suppressionIds).Count -eq 0})
+    $openRecs = @($advisorRecs.Data|Where-Object{$suppIds = Get-SafePropertyValue -InputObject $_ -Path @('properties','suppressionIds'); $null -eq $suppIds -or @($suppIds).Count -eq 0})
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are Azure Advisor recommendations reviewed periodically with automation considered?' -Priority 3 -Status $(if($openRecs.Count-eq 0){'PASS'}else{'WARN'}) -Notes ("{0} open Advisor recommendation(s) in resource group." -f $openRecs.Count)))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are Azure Advisor recommendations reviewed periodically with automation considered?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve Advisor recommendations.'))
@@ -526,10 +575,10 @@ $summary = [ordered]@{
     'MySQL Maintenance Start Hour'    = $mysqlMaintenanceHour
     'MySQL AuditLogs to LA'           = $mysqlAuditToLa
     'MySQL SlowLogs to LA'            = $mysqlSlowToLa
-    'CanNotDelete Lock on MySQL'      = ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data|Where-Object{$_.level-eq'CanNotDelete'-or$_.properties.level-eq'CanNotDelete'}).Count-gt 0)
+    'CanNotDelete Lock on MySQL'      = ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data|Where-Object{(Get-SafePropertyValue -InputObject $_ -Path @('level')) -eq 'CanNotDelete' -or (Get-SafePropertyValue -InputObject $_ -Path @('properties','level')) -eq 'CanNotDelete'}).Count-gt 0)
     'Policy Assignments'              = if($policyAssignments.Success -and $policyAssignments.Data){@($policyAssignments.Data).Count}else{0}
     'Alert Rules'                     = if($appAlertRules.Success -and $appAlertRules.Data){@($appAlertRules.Data).Count}else{0}
-    'Open Advisor Recommendations'    = if($advisorRecs.Success -and $advisorRecs.Data){@($advisorRecs.Data|Where-Object{$null -eq $_.properties.suppressionIds -or @($_.properties.suppressionIds).Count -eq 0}).Count}else{'unknown'}
+    'Open Advisor Recommendations'    = if($advisorRecs.Success -and $advisorRecs.Data){@($advisorRecs.Data|Where-Object{$suppIds = Get-SafePropertyValue -InputObject $_ -Path @('properties','suppressionIds'); $null -eq $suppIds -or @($suppIds).Count -eq 0}).Count}else{'unknown'}
     'require_secure_transport'        = if($paramRequireSecure.Success -and $paramRequireSecure.Data){Get-SafePropertyValue -InputObject $paramRequireSecure.Data -Path @('value')}else{'unknown'}
     'tls_version'                     = if($paramTlsVersion.Success -and $paramTlsVersion.Data){Get-SafePropertyValue -InputObject $paramTlsVersion.Data -Path @('value')}else{'unknown'}
     'slow_query_log'                  = if($paramSlowQuery.Success -and $paramSlowQuery.Data){Get-SafePropertyValue -InputObject $paramSlowQuery.Data -Path @('value')}else{'unknown'}

@@ -23,7 +23,7 @@ param(
     [bool]$SkipReservations = $true
 )
 
-Set-StrictMode -Version 3.0
+Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ function Get-CommandText {
 function Invoke-AzCliCommand {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][AllowNull()][object[]]$Arguments,
         [switch]$Required
     )
     $fullArguments = [System.Collections.Generic.List[string]]::new()
@@ -317,11 +317,28 @@ function Add-CostAssessmentSection {
 # ---------------------------------------------------------------------------
 Test-AzureCliPrerequisites
 
+trap {
+    Write-StatusMessage -Level 'WARN' -Message ("Unexpected non-fatal error: {0}. Continuing with the next Cost Optimisation action." -f $_.Exception.Message)
+    continue
+}
+
 if (-not (Test-Path -Path $OutputDirectory)) {
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 }
 
 $results = [System.Collections.Generic.List[object]]::new()
+
+function New-UnavailableResult {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [AllowNull()][object[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+    $argumentText = (($Arguments | ForEach-Object { if ($null -eq $_ -or [string]::IsNullOrWhiteSpace([string]$_)) { '<missing>' } else { [string]$_ } }) -join ' ').Trim()
+    $commandText = if ($argumentText) { 'az {0}' -f $argumentText } else { 'not run' }
+    Write-StatusMessage -Level 'WARN' -Message ("{0}: {1}" -f $Label, $Message)
+    [pscustomobject]@{ Label = $Label; Command = $commandText; Success = $false; ExitCode = $null; ErrorMessage = $Message; Data = $null }
+}
 
 function Add-QueryResult {
     param(
@@ -329,9 +346,28 @@ function Add-QueryResult {
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [switch]$Required
     )
-    $result = Invoke-AzCliCommand -Label $Label -Arguments $Arguments -Required:$Required
+    try {
+        $result = Invoke-AzCliCommand -Label $Label -Arguments $Arguments -Required:$Required
+    } catch {
+        $result = New-UnavailableResult -Label $Label -Arguments $Arguments -Message ("Could not collect this information. {0}" -f $_.Exception.Message)
+    }
     $results.Add($result)
     return $result
+}
+
+function Add-QueryResultWhenValuePresent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][AllowNull()][object[]]$Arguments,
+        [AllowNull()][string]$Value,
+        [Parameter(Mandatory = $true)][string]$RequiredValueName
+    )
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        $result = New-UnavailableResult -Label $Label -Arguments $Arguments -Message ("Could not find {0}; {1} was not run." -f $RequiredValueName, $Label)
+        $results.Add($result)
+        return $result
+    }
+    return Add-QueryResult -Label $Label -Arguments $Arguments
 }
 
 Write-StatusMessage -Level 'INFO' -Message ('Starting cost optimisation review for App Service [{0}] and MySQL [{1}] in resource group [{2}]' -f $AppServiceName, $MySqlServerName, $ResourceGroup)
@@ -345,14 +381,15 @@ $metricEndTime   = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssZ')
 $account             = Add-QueryResult -Label 'Azure Account'         -Arguments @('account', 'show') -Required
 $resourceGroupResult = Assert-ResourceGroupAvailable -AccountResult $account -ResourceGroupName $ResourceGroup
 $results.Add($resourceGroupResult)
-$subscriptionId      = Get-SafePropertyValue -InputObject $account.Data -Path @('id')
 
 # ---------------------------------------------------------------------------
 # SECTION 2 — App Service data
 # ---------------------------------------------------------------------------
 $webApp             = Add-QueryResult -Label 'App Service Overview'            -Arguments @('webapp', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup) -Required
-$webAppId           = $webApp.Data.id
-$planId             = if ($webApp.Data.PSObject.Properties['serverFarmId']) { $webApp.Data.serverFarmId } else { $null }
+$webAppId           = Get-SafePropertyValue -InputObject $webApp.Data -Path @('id')
+$planId             = Get-SafePropertyValue -InputObject $webApp.Data -Path @('serverFarmId')
+if (-not $webAppId) { Write-StatusMessage -Level 'WARN' -Message 'Could not find App Service resource ID. Dependent App Service metric and diagnostic data will be marked unavailable.' }
+if (-not $planId) { Write-StatusMessage -Level 'WARN' -Message 'Could not find App Service plan ID. Plan and autoscale details will be marked unavailable.' }
 
 $appSettings        = Add-QueryResult -Label 'App Service App Settings'        -Arguments @('webapp', 'config', 'appsettings', 'list', '--name', $AppServiceName, '--resource-group', $ResourceGroup)
 $siteConfig         = Add-QueryResult -Label 'App Service Site Config'         -Arguments @('webapp', 'config', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup)
@@ -364,6 +401,7 @@ $allWebApps         = Add-QueryResult -Label 'All Web Apps in Resource Group'  -
 # App Service Plan
 $plan         = $null
 $allPlansInRg = $null
+$autoscaleSettings = $null
 if ($planId) {
     $planParts = $planId.Trim('/') -split '/'
     $planName  = $null; $planRg = $ResourceGroup
@@ -379,7 +417,7 @@ if ($planId) {
 }
 
 # App Service metrics (CPU and memory — for rightsizing)
-$appServiceCpuMetrics = Add-QueryResult -Label 'App Service CPU Metrics' -Arguments @(
+$appServiceCpuMetrics = Add-QueryResultWhenValuePresent -Label 'App Service CPU Metrics' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @(
     'monitor', 'metrics', 'list',
     '--resource', $webAppId,
     '--metric', 'CpuPercentage',
@@ -389,7 +427,7 @@ $appServiceCpuMetrics = Add-QueryResult -Label 'App Service CPU Metrics' -Argume
     '--end-time', $metricEndTime
 )
 
-$appServiceMemoryMetrics = Add-QueryResult -Label 'App Service Memory Metrics' -Arguments @(
+$appServiceMemoryMetrics = Add-QueryResultWhenValuePresent -Label 'App Service Memory Metrics' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @(
     'monitor', 'metrics', 'list',
     '--resource', $webAppId,
     '--metric', 'MemoryWorkingSet',
@@ -403,7 +441,8 @@ $appServiceMemoryMetrics = Add-QueryResult -Label 'App Service Memory Metrics' -
 # SECTION 3 — MySQL data
 # ---------------------------------------------------------------------------
 $mysqlServer        = Add-QueryResult -Label 'MySQL Flexible Server Overview'   -Arguments @('mysql', 'flexible-server', 'show', '--name', $MySqlServerName, '--resource-group', $ResourceGroup) -Required
-$mysqlServerId      = $mysqlServer.Data.id
+$mysqlServerId      = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('id')
+if (-not $mysqlServerId) { Write-StatusMessage -Level 'WARN' -Message 'Could not find MySQL Flexible Server resource ID. Dependent MySQL metric data will be marked unavailable.' }
 
 $mysqlBackups       = Add-QueryResult -Label 'MySQL Flexible Server Backups'    -Arguments @('mysql', 'flexible-server', 'backup', 'list', '--name', $MySqlServerName, '--resource-group', $ResourceGroup)
 $mysqlReplicas      = Add-QueryResult -Label 'MySQL Flexible Server Replicas'   -Arguments @('mysql', 'flexible-server', 'replica', 'list', '--name', $MySqlServerName, '--resource-group', $ResourceGroup)
@@ -416,7 +455,7 @@ $paramMaxConnections    = Add-QueryResult -Label 'MySQL Parameter: max_connectio
 $paramInnodbBufferPool  = Add-QueryResult -Label 'MySQL Parameter: innodb_buffer_pool_size' -Arguments @('mysql', 'flexible-server', 'parameter', 'show', '--server-name', $MySqlServerName, '--resource-group', $ResourceGroup, '--name', 'innodb_buffer_pool_size')
 
 # MySQL metrics (CPU, memory, I/O — for rightsizing)
-$mysqlCpuMetrics     = Add-QueryResult -Label 'MySQL CPU Metrics' -Arguments @(
+$mysqlCpuMetrics     = Add-QueryResultWhenValuePresent -Label 'MySQL CPU Metrics' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @(
     'monitor', 'metrics', 'list',
     '--resource', $mysqlServerId,
     '--metric', 'cpu_percent',
@@ -426,7 +465,7 @@ $mysqlCpuMetrics     = Add-QueryResult -Label 'MySQL CPU Metrics' -Arguments @(
     '--end-time', $metricEndTime
 )
 
-$mysqlMemoryMetrics  = Add-QueryResult -Label 'MySQL Memory Metrics' -Arguments @(
+$mysqlMemoryMetrics  = Add-QueryResultWhenValuePresent -Label 'MySQL Memory Metrics' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @(
     'monitor', 'metrics', 'list',
     '--resource', $mysqlServerId,
     '--metric', 'memory_percent',
@@ -436,7 +475,7 @@ $mysqlMemoryMetrics  = Add-QueryResult -Label 'MySQL Memory Metrics' -Arguments 
     '--end-time', $metricEndTime
 )
 
-$mysqlIoMetrics      = Add-QueryResult -Label 'MySQL IO Metrics' -Arguments @(
+$mysqlIoMetrics      = Add-QueryResultWhenValuePresent -Label 'MySQL IO Metrics' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @(
     'monitor', 'metrics', 'list',
     '--resource', $mysqlServerId,
     '--metric', 'io_consumption_percent',
@@ -446,7 +485,7 @@ $mysqlIoMetrics      = Add-QueryResult -Label 'MySQL IO Metrics' -Arguments @(
     '--end-time', $metricEndTime
 )
 
-$mysqlStorageMetrics = Add-QueryResult -Label 'MySQL Storage Used Metrics' -Arguments @(
+$mysqlStorageMetrics = Add-QueryResultWhenValuePresent -Label 'MySQL Storage Used Metrics' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @(
     'monitor', 'metrics', 'list',
     '--resource', $mysqlServerId,
     '--metric', 'storage_used',
@@ -482,7 +521,7 @@ $logAnalyticsWs     = Add-QueryResult -Label 'Log Analytics Workspaces'         
 $serviceBusNs       = Add-QueryResult -Label 'Service Bus Namespaces'             -Arguments @('servicebus', 'namespace', 'list', '--resource-group', $ResourceGroup)
 
 # Diagnostic settings on App Service (for log retention check)
-$appDiagSettings    = Add-QueryResult -Label 'App Service Diagnostic Settings'   -Arguments @('monitor', 'diagnostic-settings', 'list', '--resource', $webAppId)
+$appDiagSettings    = Add-QueryResultWhenValuePresent -Label 'App Service Diagnostic Settings' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('monitor', 'diagnostic-settings', 'list', '--resource', $webAppId)
 
 # ---------------------------------------------------------------------------
 # SECTION 6 — Evaluate cost findings
@@ -573,7 +612,7 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
     $haMode  = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('highAvailability', 'mode')
     $haState = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('highAvailability', 'state')
     $skuTier = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('sku', 'tier')
-    if ($haMode -eq 'Disabled' -or $haMode -eq $null) {
+    if ($null -eq $haMode -or $haMode -eq 'Disabled') {
         $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:06 Align Usage to Billing Increments' -Question 'Is it understood that MySQL HA nearly doubles compute cost — and is HA justified for each environment?' -Priority 3 -Status 'PASS' -Notes ('HA mode = {0}. HA is not enabled — no doubled compute cost.' -f $haMode)))
     } else {
         $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:06 Align Usage to Billing Increments' -Question 'Is it understood that MySQL HA nearly doubles compute cost — and is HA justified for each environment?' -Priority 3 -Status 'MANUAL' -Notes ('HA mode = {0}; state = {1}; SKU tier = {2}. HA IS enabled — confirm this is justified for this environment and that cost has been accounted for.' -f $haMode, $haState, $skuTier)))
@@ -906,6 +945,7 @@ if ($appSettings.Success -and $appSettings.Data) {
 # ---- CO:12 Optimise Scaling Costs ----
 
 # Autoscale min/max instance limits (Priority 3)
+try {
 if ($autoscaleSettings -and $autoscaleSettings.Success -and $autoscaleSettings.Data -and @($autoscaleSettings.Data).Count -gt 0) {
     $appPlanAutoscale = @($autoscaleSettings.Data | Where-Object {
         $targetId = Get-SafePropertyValue -InputObject $_ -Path @('targetResourceUri')
@@ -913,16 +953,25 @@ if ($autoscaleSettings -and $autoscaleSettings.Success -and $autoscaleSettings.D
     })
     if ($appPlanAutoscale.Count -gt 0) {
         $as = $appPlanAutoscale[0]
-        $minInstances = Get-SafePropertyValue -InputObject $as -Path @('profiles', 'capacity', 'minimum')
-        if ($null -eq $minInstances) { $minInstances = Get-SafePropertyValue -InputObject @($as.profiles)[0] -Path @('capacity', 'minimum') }
-        $maxInstances = if ($null -eq $minInstances) { 'unknown' } else { Get-SafePropertyValue -InputObject @($as.profiles)[0] -Path @('capacity', 'maximum') }
-        $ruleCount    = if ($as.profiles) { @(@($as.profiles)[0].rules).Count } else { 0 }
+        $profiles = @(Get-SafePropertyValue -InputObject $as -Path @('profiles'))
+        $firstProfile = if ($profiles.Count -gt 0) { $profiles[0] } else { $null }
+        $minInstances = Get-SafePropertyValue -InputObject $firstProfile -Path @('capacity', 'minimum')
+        $maxInstances = Get-SafePropertyValue -InputObject $firstProfile -Path @('capacity', 'maximum')
+        if ($null -eq $minInstances) { $minInstances = 'unknown' }
+        if ($null -eq $maxInstances) { $maxInstances = 'unknown' }
+        $rules = Get-SafePropertyValue -InputObject $firstProfile -Path @('rules')
+        $ruleCount = if ($rules) { @($rules).Count } else { 0 }
         $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:12 Optimise Scaling Costs' -Question 'Are autoscale minimum/maximum instance limits, trigger thresholds, scale-in rules, and load test validation defined?' -Priority 3 -Status 'MANUAL' -Notes ('Autoscale found for App Service plan. Min instances = {0}; Max instances = {1}; Rule count = {2}. Review raw autoscale data to confirm scale-in rules and CPU thresholds are tuned to avoid paying for short-lived unnecessary instances.' -f $minInstances, $maxInstances, $ruleCount)))
     } else {
         $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:12 Optimise Scaling Costs' -Question 'Are autoscale minimum/maximum instance limits, trigger thresholds, scale-in rules, and load test validation defined?' -Priority 3 -Status 'FAIL' -Notes 'No autoscale settings found for the App Service plan. Without autoscaling the App Service runs at a fixed instance count regardless of traffic, potentially wasting cost at low-traffic periods.'))
     }
 } else {
     $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:12 Optimise Scaling Costs' -Question 'Are autoscale minimum/maximum instance limits, trigger thresholds, scale-in rules, and load test validation defined?' -Priority 3 -Status $(if ($autoscaleSettings) { 'FAIL' } else { 'UNKNOWN' }) -Notes 'Could not retrieve autoscale settings for the resource group.'))
+}
+} catch {
+    $autoscaleError = $_.Exception.Message
+    Write-StatusMessage -Level 'WARN' -Message ("Could not evaluate autoscale settings: {0}. Continuing with remaining Cost checks." -f $autoscaleError)
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:12 Optimise Scaling Costs' -Question 'Are autoscale minimum/maximum instance limits, trigger thresholds, scale-in rules, and load test validation defined?' -Priority 3 -Status 'UNKNOWN' -Notes ("Could not evaluate autoscale settings safely. Error: {0}. Review raw autoscale data if available." -f $autoscaleError)))
 }
 
 # MySQL storage provisioned conservatively (Priority 3)
@@ -1068,7 +1117,6 @@ $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:08 Optim
 
 # ---- CO:13 Optimise Personnel Time — P4 (new section) ----
 if ($sslCertificates.Success -and $sslCertificates.Data -and @($sslCertificates.Data).Count -gt 0) {
-    $managedCerts = @($sslCertificates.Data | Where-Object { $_.issuer -match 'Microsoft' -or $_.subjectName -match 'microsoft' -or $_.thumbprintAlgorithm -eq 'SHA1' -and $_.expirationDate -gt (Get-Date) })
     $allCertCount = @($sslCertificates.Data).Count
     $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:13 Optimise Personnel Time' -Question 'Are App Service Managed Certificates used for custom domains to eliminate certificate management cost?' -Priority 4 -Status $(if ($allCertCount -gt 0) { 'MANUAL' } else { 'MANUAL' }) -Notes ('{0} SSL certificate(s) found on the App Service. Review the certificate list above — App Service Managed Certificates are free and auto-renew. Third-party certs incur purchase and renewal overhead.' -f $allCertCount)))
 } else {

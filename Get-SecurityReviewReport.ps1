@@ -21,7 +21,7 @@ param(
     [string]$AfdResourceGroup
 )
 
-Set-StrictMode -Version 3.0
+Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 # ---------------------------------------------------------------------------
@@ -57,6 +57,13 @@ function Get-SafePropertyValue {
     }
 
     return $current
+}
+
+function Get-SafeArrayText {
+    param($Value)
+
+    if ($null -eq $Value) { return '' }
+    return (@($Value) | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ }) -join ','
 }
 
 function Test-AzureCliPrerequisites {
@@ -335,21 +342,57 @@ function Add-SecurityAssessmentSection {
 # ---------------------------------------------------------------------------
 Test-AzureCliPrerequisites
 
+trap {
+    Write-StatusMessage -Level 'WARN' -Message ("Unexpected non-fatal error: {0}. Continuing with the next Security action." -f $_.Exception.Message)
+    continue
+}
+
 if (-not (Test-Path -Path $OutputDirectory)) {
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 }
 
 $results = [System.Collections.Generic.List[object]]::new()
 
+function New-UnavailableResult {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [AllowNull()][object[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+    $argumentText = (($Arguments | ForEach-Object { if ($null -eq $_ -or [string]::IsNullOrWhiteSpace([string]$_)) { '<missing>' } else { [string]$_ } }) -join ' ').Trim()
+    $commandText = if ($argumentText) { 'az {0}' -f $argumentText } else { 'not run' }
+    Write-StatusMessage -Level 'WARN' -Message ("{0}: {1}" -f $Label, $Message)
+    [pscustomobject]@{ Label = $Label; Command = $commandText; Success = $false; ExitCode = $null; ErrorMessage = $Message; Data = $null }
+}
+
 function Add-QueryResult {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][AllowNull()][object[]]$Arguments,
         [switch]$Required
     )
-    $result = Invoke-AzCliCommand -Label $Label -Arguments $Arguments -Required:$Required
+    try {
+        $result = Invoke-AzCliCommand -Label $Label -Arguments $Arguments -Required:$Required
+    } catch {
+        $result = New-UnavailableResult -Label $Label -Arguments $Arguments -Message ("Could not collect this information. {0}" -f $_.Exception.Message)
+    }
     $results.Add($result)
     return $result
+}
+
+function Add-QueryResultWhenValuePresent {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][AllowNull()][object[]]$Arguments,
+        [AllowNull()][string]$Value,
+        [Parameter(Mandatory = $true)][string]$RequiredValueName
+    )
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        $result = New-UnavailableResult -Label $Label -Arguments $Arguments -Message ("Could not find {0}; {1} was not run." -f $RequiredValueName, $Label)
+        $results.Add($result)
+        return $result
+    }
+    return Add-QueryResult -Label $Label -Arguments $Arguments
 }
 
 Write-StatusMessage -Level 'INFO' -Message ('Starting security review for App Service [{0}] and MySQL [{1}] in resource group [{2}]' -f $AppServiceName, $MySqlServerName, $ResourceGroup)
@@ -365,8 +408,10 @@ $results.Add($resourceGroupResult)
 # SECTION 2 — App Service data collection
 # ---------------------------------------------------------------------------
 $webApp              = Add-QueryResult -Label 'App Service Overview'            -Arguments @('webapp', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup) -Required
-$webAppId            = $webApp.Data.id
-$planId              = if ($webApp.Data.PSObject.Properties['serverFarmId']) { $webApp.Data.serverFarmId } else { $null }
+$webAppId            = Get-SafePropertyValue -InputObject $webApp.Data -Path @('id')
+$planId              = Get-SafePropertyValue -InputObject $webApp.Data -Path @('serverFarmId')
+if (-not $webAppId) { Write-StatusMessage -Level 'WARN' -Message 'Could not find App Service resource ID. Dependent App Service ARM policy data will be marked unavailable.' }
+if (-not $planId) { Write-StatusMessage -Level 'WARN' -Message 'Could not find App Service plan ID. Plan and autoscale details will be marked unavailable.' }
 
 $siteConfig          = Add-QueryResult -Label 'App Service Site Config'         -Arguments @('webapp', 'config', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup)
 $appSettings         = Add-QueryResult -Label 'App Service App Settings'        -Arguments @('webapp', 'config', 'appsettings', 'list', '--name', $AppServiceName, '--resource-group', $ResourceGroup)
@@ -380,8 +425,8 @@ $sslCertificates     = Add-QueryResult -Label 'App Service SSL Certificates'    
 $corsSettings        = Add-QueryResult -Label 'App Service CORS Settings'       -Arguments @('webapp', 'cors', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup)
 
 # Basic publishing credentials policies (ARM resource — requires resource id path)
-$scmBasicAuthPolicy  = Add-QueryResult -Label 'App Service SCM Basic Auth Policy' -Arguments @('resource', 'show', '--ids', ('{0}/basicPublishingCredentialsPolicies/scm' -f $webAppId))
-$ftpBasicAuthPolicy  = Add-QueryResult -Label 'App Service FTP Basic Auth Policy' -Arguments @('resource', 'show', '--ids', ('{0}/basicPublishingCredentialsPolicies/ftp' -f $webAppId))
+$scmBasicAuthPolicy  = Add-QueryResultWhenValuePresent -Label 'App Service SCM Basic Auth Policy' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('resource', 'show', '--ids', ('{0}/basicPublishingCredentialsPolicies/scm' -f $webAppId))
+$ftpBasicAuthPolicy  = Add-QueryResultWhenValuePresent -Label 'App Service FTP Basic Auth Policy' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('resource', 'show', '--ids', ('{0}/basicPublishingCredentialsPolicies/ftp' -f $webAppId))
 
 # App Service Plan
 $plan = $null
@@ -421,8 +466,12 @@ $afdProfiles  = Add-QueryResult -Label 'Azure Front Door Profiles' -Arguments @(
 $resolvedAfdProfileName = $AfdProfileName
 if (-not $resolvedAfdProfileName -and $afdProfiles.Success -and $afdProfiles.Data) {
     $firstProfile = @($afdProfiles.Data)[0]
-    $resolvedAfdProfileName = $firstProfile.name
-    Write-StatusMessage -Level 'INFO' -Message ("Auto-detected AFD profile: {0}" -f $resolvedAfdProfileName)
+    $resolvedAfdProfileName = Get-SafePropertyValue -InputObject $firstProfile -Path @('name')
+    if ($resolvedAfdProfileName) {
+        Write-StatusMessage -Level 'INFO' -Message ("Auto-detected AFD profile: {0}" -f $resolvedAfdProfileName)
+    } else {
+        Write-StatusMessage -Level 'WARN' -Message 'Azure Front Door profile list returned data, but no profile name could be found.'
+    }
 }
 
 $afdSecurityPolicies = $null
@@ -457,7 +506,6 @@ $appGateways = Add-QueryResult -Label 'Application Gateways' -Arguments @('netwo
 # SECTION 5 — MySQL data collection
 # ---------------------------------------------------------------------------
 $mysqlServer         = Add-QueryResult -Label 'MySQL Flexible Server Overview'    -Arguments @('mysql', 'flexible-server', 'show', '--name', $MySqlServerName, '--resource-group', $ResourceGroup) -Required
-$mysqlServerId       = $mysqlServer.Data.id
 
 $mysqlParameters     = Add-QueryResult -Label 'MySQL Flexible Server Parameters'  -Arguments @('mysql', 'flexible-server', 'parameter', 'list', '--server-name', $MySqlServerName, '--resource-group', $ResourceGroup)
 $mysqlFirewallRules  = Add-QueryResult -Label 'MySQL Flexible Server Firewall Rules' -Arguments @('mysql', 'flexible-server', 'firewall-rule', 'list', '--name', $MySqlServerName, '--resource-group', $ResourceGroup)
@@ -747,18 +795,19 @@ if ($siteConfig.Success -and $siteConfig.Data) {
 }
 
 # WAF rules OWASP Top 10 (Priority 3)
+try {
 if ($afdWafPolicies -and $afdWafPolicies.Success -and $afdWafPolicies.Data) {
     $managedRuleSets = Get-SafePropertyValue -InputObject $afdWafPolicies.Data -Path @('properties', 'managedRules', 'managedRuleSets')
     if (-not $managedRuleSets) {
         $managedRuleSets = Get-SafePropertyValue -InputObject $afdWafPolicies.Data -Path @('managedRules', 'managedRuleSets')
     }
     if ($managedRuleSets) {
-        $owaspRuleSet = @($managedRuleSets | Where-Object { $_.ruleSetType -match 'DefaultRuleSet|OWASP' })
-        $botRuleSet   = @($managedRuleSets | Where-Object { $_.ruleSetType -match 'BotManager|BotProtection' })
+        $owaspRuleSet = @($managedRuleSets | Where-Object { (Get-SafePropertyValue -InputObject $_ -Path @('ruleSetType')) -match 'DefaultRuleSet|OWASP' })
+        $botRuleSet   = @($managedRuleSets | Where-Object { (Get-SafePropertyValue -InputObject $_ -Path @('ruleSetType')) -match 'BotManager|BotProtection' })
         $policyMode   = Get-SafePropertyValue -InputObject $afdWafPolicies.Data -Path @('properties', 'policySettings', 'mode')
         if (-not $policyMode) { $policyMode = Get-SafePropertyValue -InputObject $afdWafPolicies.Data -Path @('policySettings', 'mode') }
 
-        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are WAF rules configured for OWASP Top 10 threats?' -Priority 3 -Status $(if ($owaspRuleSet.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Managed rule sets found: {0}' -f (($managedRuleSets | ForEach-Object { $_.ruleSetType }) -join ', '))))
+        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are WAF rules configured for OWASP Top 10 threats?' -Priority 3 -Status $(if ($owaspRuleSet.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Managed rule sets found: {0}' -f (($managedRuleSets | ForEach-Object { Get-SafePropertyValue -InputObject $_ -Path @('ruleSetType') }) -join ', '))))
         $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are bot protection rules enabled on the WAF?' -Priority 3 -Status $(if ($botRuleSet.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Bot rule set count: {0}' -f $botRuleSet.Count)))
         $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Is the WAF in Prevention mode (not Detection only) for production?' -Priority 3 -Status $(if ($policyMode -eq 'Prevention') { 'PASS' } else { 'FAIL' }) -Notes ('WAF policy mode: {0}' -f $policyMode)))
     } else {
@@ -772,7 +821,13 @@ if ($afdWafPolicies -and $afdWafPolicies.Success -and $afdWafPolicies.Data) {
     if ($customRules) {
         $wpAdminRule = @($customRules | Where-Object {
             $conditions = Get-SafePropertyValue -InputObject $_ -Path @('matchConditions')
-            if ($conditions) { $conditions | Where-Object { ($_.matchValues -join ',') -match 'wp-admin|wp-login' } }
+            if ($conditions) {
+                $conditions | Where-Object {
+                    $matchValues = Get-SafePropertyValue -InputObject $_ -Path @('matchValues')
+                    if ($null -eq $matchValues) { $matchValues = Get-SafePropertyValue -InputObject $_ -Path @('matchValue') }
+                    (Get-SafeArrayText -Value $matchValues) -match 'wp-admin|wp-login'
+                }
+            }
         })
         $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are WordPress admin paths (/wp-admin, /wp-login.php) restricted via WAF custom rules?' -Priority 3 -Status $(if ($wpAdminRule.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Custom rules targeting wp-admin/wp-login: {0}. Review raw WAF policy for full detail.' -f $wpAdminRule.Count)))
     } else {
@@ -781,6 +836,13 @@ if ($afdWafPolicies -and $afdWafPolicies.Success -and $afdWafPolicies.Data) {
 } else {
     foreach ($q in @('Are WAF rules configured for OWASP Top 10 threats?', 'Are bot protection rules enabled on the WAF?', 'Is the WAF in Prevention mode (not Detection only) for production?', 'Are WordPress admin paths (/wp-admin, /wp-login.php) restricted via WAF custom rules?')) {
         $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question $q -Priority 3 -Status 'UNKNOWN' -Notes 'AFD WAF policy not retrieved. Provide -AfdProfileName parameter if the profile exists in a different resource group.'))
+    }
+}
+} catch {
+    $wafParseError = $_.Exception.Message
+    Write-StatusMessage -Level 'WARN' -Message ("Could not evaluate AFD WAF rule details: {0}. Continuing with remaining Security checks." -f $wafParseError)
+    foreach ($q in @('Are WAF rules configured for OWASP Top 10 threats?', 'Are bot protection rules enabled on the WAF?', 'Is the WAF in Prevention mode (not Detection only) for production?', 'Are WordPress admin paths (/wp-admin, /wp-login.php) restricted via WAF custom rules?')) {
+        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question $q -Priority 3 -Status 'UNKNOWN' -Notes ("Could not evaluate WAF rule details safely. Error: {0}. Review raw AFD WAF Policy section." -f $wafParseError)))
     }
 }
 

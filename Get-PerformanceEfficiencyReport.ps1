@@ -20,7 +20,7 @@ param(
     [string]$AfdResourceGroup
 )
 
-Set-StrictMode -Version 3.0
+Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 # ---------------------------------------------------------------------------
@@ -101,17 +101,38 @@ function Add-KeyValueTable {
 
 function Add-JsonSection {
     param([Parameter(Mandatory)][System.Text.StringBuilder]$Builder, [Parameter(Mandatory)][string]$Title, [int]$HeadingLevel=2, [Parameter(Mandatory)]$Result)
-    $h='#'*$HeadingLevel
-    Add-MarkdownLine -Builder $Builder -Text ('{0} {1}' -f $h,$Title); Add-MarkdownLine -Builder $Builder -Text ('Command: `{0}`' -f $Result.Command); Add-MarkdownLine -Builder $Builder
-    if (-not $Result.Success) { Add-MarkdownLine -Builder $Builder -Text 'Status: failed'; Add-MarkdownLine -Builder $Builder -Text ('Error: `{0}`' -f (ConvertTo-MarkdownText $Result.ErrorMessage)); Add-MarkdownLine -Builder $Builder; return }
-    if ($null -eq $Result.Data) { Add-MarkdownLine -Builder $Builder -Text 'Status: succeeded, but no data was returned.'; Add-MarkdownLine -Builder $Builder; return }
-    Add-MarkdownLine -Builder $Builder -Text '```json'; Add-MarkdownLine -Builder $Builder -Text (Protect-Object -InputObject $Result.Data | ConvertTo-Json -Depth 100); Add-MarkdownLine -Builder $Builder -Text '```'; Add-MarkdownLine -Builder $Builder
+    try {
+        $h='#'*$HeadingLevel
+        $command = Get-SafePropertyValue -InputObject $Result -Path @('Command')
+        $success = Get-SafePropertyValue -InputObject $Result -Path @('Success')
+        $errorMessage = Get-SafePropertyValue -InputObject $Result -Path @('ErrorMessage')
+        $data = Get-SafePropertyValue -InputObject $Result -Path @('Data')
+        Add-MarkdownLine -Builder $Builder -Text ('{0} {1}' -f $h,$Title); Add-MarkdownLine -Builder $Builder -Text ('Command: `{0}`' -f $command); Add-MarkdownLine -Builder $Builder
+        if (-not $success) { Add-MarkdownLine -Builder $Builder -Text 'Status: failed'; Add-MarkdownLine -Builder $Builder -Text ('Error: `{0}`' -f (ConvertTo-MarkdownText $errorMessage)); Add-MarkdownLine -Builder $Builder; return }
+        if ($null -eq $data) { Add-MarkdownLine -Builder $Builder -Text 'Status: succeeded, but no data was returned.'; Add-MarkdownLine -Builder $Builder; return }
+        Add-MarkdownLine -Builder $Builder -Text '```json'; Add-MarkdownLine -Builder $Builder -Text (Protect-Object -InputObject $data | ConvertTo-Json -Depth 100); Add-MarkdownLine -Builder $Builder -Text '```'; Add-MarkdownLine -Builder $Builder
+    } catch {
+        Write-StatusMessage -Level WARN -Message ("Could not write raw data section '{0}': {1}. Continuing." -f $Title, $_.Exception.Message)
+        Add-MarkdownLine -Builder $Builder -Text ('## {0}' -f $Title); Add-MarkdownLine -Builder $Builder -Text ('Status: could not render section. Error: `{0}`' -f (ConvertTo-MarkdownText $_.Exception.Message)); Add-MarkdownLine -Builder $Builder
+    }
 }
 
 function Add-CollectionStatusSection {
     param([Parameter(Mandatory)][System.Text.StringBuilder]$Builder, [Parameter(Mandatory)][System.Collections.Generic.List[object]]$Results)
     Add-MarkdownLine -Builder $Builder -Text '## Collection Status'; Add-MarkdownLine -Builder $Builder -Text '| Section | Success | Exit Code | Notes |'; Add-MarkdownLine -Builder $Builder -Text '| --- | --- | --- | --- |'
-    foreach ($r in $Results) { Add-MarkdownLine -Builder $Builder -Text ('| {0} | {1} | {2} | {3} |' -f (ConvertTo-MarkdownText $r.Label),$r.Success,$r.ExitCode,(ConvertTo-MarkdownText (if($r.Success){'Collected'}else{$r.ErrorMessage}))) }
+    foreach ($r in $Results) {
+        try {
+            $label = Get-SafePropertyValue -InputObject $r -Path @('Label')
+            $success = Get-SafePropertyValue -InputObject $r -Path @('Success')
+            $exitCode = Get-SafePropertyValue -InputObject $r -Path @('ExitCode')
+            $errorMessage = Get-SafePropertyValue -InputObject $r -Path @('ErrorMessage')
+            $notes = if ($success) { 'Collected' } else { $errorMessage }
+            Add-MarkdownLine -Builder $Builder -Text ('| {0} | {1} | {2} | {3} |' -f (ConvertTo-MarkdownText $label),$success,$exitCode,(ConvertTo-MarkdownText $notes))
+        } catch {
+            Write-StatusMessage -Level WARN -Message ("Could not write a collection status row: {0}. Continuing." -f $_.Exception.Message)
+            Add-MarkdownLine -Builder $Builder -Text ('| Unknown | False |  | Could not render status row: {0} |' -f (ConvertTo-MarkdownText $_.Exception.Message))
+        }
+    }
     Add-MarkdownLine -Builder $Builder
 }
 
@@ -169,12 +190,37 @@ function Get-MetricAverage {
 # Script entry point
 # ---------------------------------------------------------------------------
 Test-AzureCliPrerequisites
+
+trap {
+    Write-StatusMessage -Level WARN -Message ("Unexpected non-fatal error: {0}. Continuing with the next Performance action." -f $_.Exception.Message)
+    continue
+}
+
 if (-not (Test-Path -Path $OutputDirectory)) { New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null }
 
 $results = [System.Collections.Generic.List[object]]::new()
+function New-UnavailableResult {
+    param([Parameter(Mandatory)][string]$Label, [AllowNull()][object[]]$Arguments, [Parameter(Mandatory)][string]$Message)
+    $argumentText = (($Arguments | ForEach-Object { if ($null -eq $_ -or [string]::IsNullOrWhiteSpace([string]$_)) { '<missing>' } else { [string]$_ } }) -join ' ').Trim()
+    $commandText = if ($argumentText) { 'az {0}' -f $argumentText } else { 'not run' }
+    Write-StatusMessage -Level WARN -Message ("{0}: {1}" -f $Label, $Message)
+    [pscustomobject]@{ Label=$Label; Command=$commandText; Success=$false; ExitCode=$null; ErrorMessage=$Message; Data=$null }
+}
+
 function Add-QueryResult {
     param([Parameter(Mandatory)][string]$Label, [Parameter(Mandatory)][string[]]$Arguments, [switch]$Required)
-    $r = Invoke-AzCliCommand -Label $Label -Arguments $Arguments -Required:$Required; $results.Add($r); return $r
+    try { $r = Invoke-AzCliCommand -Label $Label -Arguments $Arguments -Required:$Required }
+    catch { $r = New-UnavailableResult -Label $Label -Arguments $Arguments -Message ("Could not collect this information. {0}" -f $_.Exception.Message) }
+    $results.Add($r); return $r
+}
+
+function Add-QueryResultWhenValuePresent {
+    param([Parameter(Mandatory)][string]$Label, [Parameter(Mandatory)][AllowNull()][object[]]$Arguments, [AllowNull()][string]$Value, [Parameter(Mandatory)][string]$RequiredValueName)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        $r = New-UnavailableResult -Label $Label -Arguments $Arguments -Message ("Could not find {0}; {1} was not run." -f $RequiredValueName, $Label)
+        $results.Add($r); return $r
+    }
+    return Add-QueryResult -Label $Label -Arguments $Arguments
 }
 
 Write-StatusMessage -Level INFO -Message ("Starting performance efficiency review for [{0}] and MySQL [{1}] in [{2}]" -f $AppServiceName,$MySqlServerName,$ResourceGroup)
@@ -190,14 +236,16 @@ $rgResult        = Assert-ResourceGroupAvailable -AccountResult $account -Resour
 $results.Add($rgResult)
 
 $webApp          = Add-QueryResult -Label 'App Service Overview'        -Arguments @('webapp','show','--name',$AppServiceName,'--resource-group',$ResourceGroup) -Required
-$webAppId        = $webApp.Data.id
-$planId          = if ($webApp.Data.PSObject.Properties['serverFarmId']) { $webApp.Data.serverFarmId } else { $null }
+$webAppId        = Get-SafePropertyValue -InputObject $webApp.Data -Path @('id')
+$planId          = Get-SafePropertyValue -InputObject $webApp.Data -Path @('serverFarmId')
+if (-not $webAppId) { Write-StatusMessage -Level WARN -Message 'Could not find App Service resource ID. Dependent App Service metric and diagnostic data will be marked unavailable.' }
+if (-not $planId) { Write-StatusMessage -Level WARN -Message 'Could not find App Service plan ID. Plan and autoscale details will be marked unavailable.' }
 
 $siteConfig      = Add-QueryResult -Label 'App Service Site Config'     -Arguments @('webapp','config','show','--name',$AppServiceName,'--resource-group',$ResourceGroup)
 $appSettings     = Add-QueryResult -Label 'App Service App Settings'    -Arguments @('webapp','config','appsettings','list','--name',$AppServiceName,'--resource-group',$ResourceGroup)
 $slots           = Add-QueryResult -Label 'App Service Deployment Slots'-Arguments @('webapp','deployment','slot','list','--name',$AppServiceName,'--resource-group',$ResourceGroup)
 $hostnameBindings= Add-QueryResult -Label 'App Service Hostname Bindings'-Arguments @('webapp','config','hostname','list','--webapp-name',$AppServiceName,'--resource-group',$ResourceGroup)
-$healthCheck     = Add-QueryResult -Label 'App Service Health Check'    -Arguments @('webapp','show','--name',$AppServiceName,'--resource-group',$ResourceGroup,'--query','siteConfig.healthCheckPath')
+$null            = Add-QueryResult -Label 'App Service Health Check'    -Arguments @('webapp','show','--name',$AppServiceName,'--resource-group',$ResourceGroup,'--query','siteConfig.healthCheckPath')
 
 # App Service Plan
 $plan = $null; $autoscaleSettings = $null; $allPlansInRg = $null
@@ -219,15 +267,16 @@ if ($planId) {
 $appInsightsResult = Add-QueryResult -Label 'Application Insights Components' -Arguments @('resource','list','--resource-group',$ResourceGroup,'--resource-type','microsoft.insights/components')
 
 # App Service metrics
-$appCpuMetrics = Add-QueryResult -Label 'App Service CPU Metrics'      -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','CpuPercentage','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
-$appMemMetrics = Add-QueryResult -Label 'App Service Memory Metrics'   -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','MemoryWorkingSet','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
-$appReqMetrics = Add-QueryResult -Label 'App Service Requests Metrics' -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','Requests','--interval','PT1H','--aggregation','Total','--start-time',$metricStart,'--end-time',$metricEnd)
-$appHttp5xx    = Add-QueryResult -Label 'App Service HTTP 5xx Metrics' -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','Http5xx','--interval','PT1H','--aggregation','Total','--start-time',$metricStart,'--end-time',$metricEnd)
+$appCpuMetrics = Add-QueryResultWhenValuePresent -Label 'App Service CPU Metrics' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','CpuPercentage','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
+$appMemMetrics = Add-QueryResultWhenValuePresent -Label 'App Service Memory Metrics' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','MemoryWorkingSet','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
+$appReqMetrics = Add-QueryResultWhenValuePresent -Label 'App Service Requests Metrics' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','Requests','--interval','PT1H','--aggregation','Total','--start-time',$metricStart,'--end-time',$metricEnd)
+$appHttp5xx    = Add-QueryResultWhenValuePresent -Label 'App Service HTTP 5xx Metrics' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','Http5xx','--interval','PT1H','--aggregation','Total','--start-time',$metricStart,'--end-time',$metricEnd)
 $appAlertRules = Add-QueryResult -Label 'App Service Alert Rules'      -Arguments @('monitor','metrics','alert','list','--resource-group',$ResourceGroup)
 
 # MySQL
 $mysqlServer     = Add-QueryResult -Label 'MySQL Flexible Server Overview' -Arguments @('mysql','flexible-server','show','--name',$MySqlServerName,'--resource-group',$ResourceGroup) -Required
-$mysqlServerId   = $mysqlServer.Data.id
+$mysqlServerId   = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('id')
+if (-not $mysqlServerId) { Write-StatusMessage -Level WARN -Message 'Could not find MySQL Flexible Server resource ID. Dependent MySQL metric and diagnostic data will be marked unavailable.' }
 $mysqlReplicas   = Add-QueryResult -Label 'MySQL Replicas'                  -Arguments @('mysql','flexible-server','replica','list','--name',$MySqlServerName,'--resource-group',$ResourceGroup)
 
 # Key MySQL parameters for performance
@@ -242,12 +291,12 @@ $paramLongQueryTime  = Add-QueryResult -Label 'MySQL: long_query_time'          
 $paramMaintenanceWin = Add-QueryResult -Label 'MySQL: maintenance_window'          -Arguments @('mysql','flexible-server','show','--name',$MySqlServerName,'--resource-group',$ResourceGroup,'--query','maintenanceWindow')
 
 # MySQL metrics
-$mysqlCpuMetrics  = Add-QueryResult -Label 'MySQL CPU Metrics'     -Arguments @('monitor','metrics','list','--resource',$mysqlServerId,'--metric','cpu_percent','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
-$mysqlMemMetrics  = Add-QueryResult -Label 'MySQL Memory Metrics'  -Arguments @('monitor','metrics','list','--resource',$mysqlServerId,'--metric','memory_percent','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
-$mysqlIoMetrics   = Add-QueryResult -Label 'MySQL IO Metrics'      -Arguments @('monitor','metrics','list','--resource',$mysqlServerId,'--metric','io_consumption_percent','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
-$mysqlConnMetrics = Add-QueryResult -Label 'MySQL Connections Metrics' -Arguments @('monitor','metrics','list','--resource',$mysqlServerId,'--metric','active_connections','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
-$mysqlDiagSettings= Add-QueryResult -Label 'MySQL Diagnostic Settings' -Arguments @('monitor','diagnostic-settings','list','--resource',$mysqlServerId)
-$appDiagSettings  = Add-QueryResult -Label 'App Service Diagnostic Settings' -Arguments @('monitor','diagnostic-settings','list','--resource',$webAppId)
+$mysqlCpuMetrics  = Add-QueryResultWhenValuePresent -Label 'MySQL CPU Metrics' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @('monitor','metrics','list','--resource',$mysqlServerId,'--metric','cpu_percent','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
+$mysqlMemMetrics  = Add-QueryResultWhenValuePresent -Label 'MySQL Memory Metrics' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @('monitor','metrics','list','--resource',$mysqlServerId,'--metric','memory_percent','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
+$mysqlIoMetrics   = Add-QueryResultWhenValuePresent -Label 'MySQL IO Metrics' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @('monitor','metrics','list','--resource',$mysqlServerId,'--metric','io_consumption_percent','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
+$mysqlConnMetrics = Add-QueryResultWhenValuePresent -Label 'MySQL Connections Metrics' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @('monitor','metrics','list','--resource',$mysqlServerId,'--metric','active_connections','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
+$mysqlDiagSettings= Add-QueryResultWhenValuePresent -Label 'MySQL Diagnostic Settings' -Value $mysqlServerId -RequiredValueName 'MySQL Flexible Server resource ID' -Arguments @('monitor','diagnostic-settings','list','--resource',$mysqlServerId)
+$appDiagSettings  = Add-QueryResultWhenValuePresent -Label 'App Service Diagnostic Settings' -Value $webAppId -RequiredValueName 'App Service resource ID' -Arguments @('monitor','diagnostic-settings','list','--resource',$webAppId)
 
 # Supporting infrastructure
 $afdRg       = if ($AfdResourceGroup) { $AfdResourceGroup } else { $ResourceGroup }
@@ -422,7 +471,6 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
     $standbyZone = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('highAvailability','standbyAvailabilityZone')
     $primaryZone = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('availabilityZone')
     if ($haMode -eq 'ZoneRedundant') {
-        $zonesOk = $primaryZone -ne $standbyZone -and $null -ne $standbyZone
         $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'For HA-enabled servers, is scaling performed on the standby first?' -Priority 3 -Status 'MANUAL' -Notes ("HA = ZoneRedundant; primary AZ = {0}; standby AZ = {1}. Confirm that compute tier scale operations are performed on the standby before the primary." -f $primaryZone,$standbyZone)))
     } else {
         $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'For HA-enabled servers, is scaling performed on the standby first?' -Priority 3 -Status 'MANUAL' -Notes ("HA mode = {0}. Zone-redundant HA is not enabled — review if this is intentional." -f $haMode)))
@@ -461,8 +509,9 @@ $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Op
 if ($paramInnodbBuf.Success -and $paramInnodbBuf.Data) {
     $bufSize  = Get-SafePropertyValue -InputObject $paramInnodbBuf.Data -Path @('value')
     $bufBytes = try{[long]$bufSize}catch{$null}
+    $bufMb    = if ($null -ne $bufBytes) { [math]::Round($bufBytes/1MB,0) } else { 'unknown' }
     $skuName  = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('sku','name')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_buffer_pool_size set to the maximum the SKU supports?' -Priority 3 -Status 'MANUAL' -Notes ("innodb_buffer_pool_size = {0} bytes (~{1} MB); MySQL SKU = {2}. Set this to 70-80% of total RAM for the selected SKU for maximum cache hit rate." -f $bufSize,([math]::Round([double]$bufSize/1MB,0)),$skuName)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_buffer_pool_size set to the maximum the SKU supports?' -Priority 3 -Status 'MANUAL' -Notes ("innodb_buffer_pool_size = {0} bytes (~{1} MB); MySQL SKU = {2}. Set this to 70-80% of total RAM for the selected SKU for maximum cache hit rate." -f $bufSize,$bufMb,$skuName)))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_buffer_pool_size set to the maximum the SKU supports?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve innodb_buffer_pool_size.'))
 }
