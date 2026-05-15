@@ -251,7 +251,7 @@ if ($paramMaintenanceWin.Success -and $paramMaintenanceWin.Data) {
 # ---- OE:05 Infrastructure as Code ----
 # CanNotDelete lock — P1
 if ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data).Count-gt 0) {
-    $delLock = @($mysqlLock.Data|Where-Object{$_?.properties?.level -eq 'CanNotDelete' -or $_.level -eq 'CanNotDelete'})
+    $delLock = @($mysqlLock.Data|Where-Object{$_.properties.level -eq 'CanNotDelete' -or $_.level -eq 'CanNotDelete'})
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:05 Infrastructure as Code' -Question 'Is a CanNotDelete management lock applied in IaC?' -Priority 1 -Status (if($delLock.Count-gt 0){'PASS'}else{'FAIL'}) -Notes ("{0} lock(s) on MySQL server; {1} CanNotDelete. A CanNotDelete lock on the MySQL Flexible Server prevents accidental deletion." -f @($mysqlLock.Data).Count,$delLock.Count)))
 } elseif ($mysqlLock.Success) {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:05 Infrastructure as Code' -Question 'Is a CanNotDelete management lock applied in IaC?' -Priority 1 -Status 'FAIL' -Notes 'No locks found on MySQL Flexible Server. Apply a CanNotDelete lock via IaC.'))
@@ -397,7 +397,7 @@ if ($policyAssignments.Success -and $policyAssignments.Data -and @($policyAssign
 
 # Advisor recommendations
 if ($advisorRecs.Success -and $advisorRecs.Data) {
-    $openRecs = @($advisorRecs.Data|Where-Object{$null -eq $_?.properties?.suppressionIds -or @($_?.properties?.suppressionIds).Count -eq 0})
+    $openRecs = @($advisorRecs.Data|Where-Object{$null -eq $_.properties.suppressionIds -or @($_.properties.suppressionIds).Count -eq 0})
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are Azure Advisor recommendations reviewed periodically with automation considered?' -Priority 3 -Status (if($openRecs.Count-eq 0){'PASS'}else{'WARN'}) -Notes ("{0} open Advisor recommendation(s) in resource group." -f $openRecs.Count)))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are Azure Advisor recommendations reviewed periodically with automation considered?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve Advisor recommendations.'))
@@ -526,10 +526,10 @@ $summary = [ordered]@{
     'MySQL Maintenance Start Hour'    = $mysqlMaintenanceHour
     'MySQL AuditLogs to LA'           = $mysqlAuditToLa
     'MySQL SlowLogs to LA'            = $mysqlSlowToLa
-    'CanNotDelete Lock on MySQL'      = ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data|Where-Object{$_.level-eq'CanNotDelete'-or$_?.properties?.level-eq'CanNotDelete'}).Count-gt 0)
+    'CanNotDelete Lock on MySQL'      = ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data|Where-Object{$_.level-eq'CanNotDelete'-or$_.properties.level-eq'CanNotDelete'}).Count-gt 0)
     'Policy Assignments'              = if($policyAssignments.Success -and $policyAssignments.Data){@($policyAssignments.Data).Count}else{0}
     'Alert Rules'                     = if($appAlertRules.Success -and $appAlertRules.Data){@($appAlertRules.Data).Count}else{0}
-    'Open Advisor Recommendations'    = if($advisorRecs.Success -and $advisorRecs.Data){@($advisorRecs.Data|Where-Object{$null -eq $_?.properties?.suppressionIds -or @($_?.properties?.suppressionIds).Count -eq 0}).Count}else{'unknown'}
+    'Open Advisor Recommendations'    = if($advisorRecs.Success -and $advisorRecs.Data){@($advisorRecs.Data|Where-Object{$null -eq $_.properties.suppressionIds -or @($_.properties.suppressionIds).Count -eq 0}).Count}else{'unknown'}
     'require_secure_transport'        = if($paramRequireSecure.Success -and $paramRequireSecure.Data){Get-SafePropertyValue -InputObject $paramRequireSecure.Data -Path @('value')}else{'unknown'}
     'tls_version'                     = if($paramTlsVersion.Success -and $paramTlsVersion.Data){Get-SafePropertyValue -InputObject $paramTlsVersion.Data -Path @('value')}else{'unknown'}
     'slow_query_log'                  = if($paramSlowQuery.Success -and $paramSlowQuery.Data){Get-SafePropertyValue -InputObject $paramSlowQuery.Data -Path @('value')}else{'unknown'}

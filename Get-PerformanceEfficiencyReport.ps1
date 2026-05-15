@@ -155,7 +155,8 @@ function Get-MetricAverage {
     if (-not $MetricResult.Success -or -not $MetricResult.Data) { return $null }
     $series = $MetricResult.Data; if ($series.PSObject.Properties['value']) { $series = $series.value }
     $ts = Get-SafePropertyValue -InputObject @($series)[0] -Path @('timeseries'); if (-not $ts) { return $null }
-    $dp = @(@($ts)[0].data|Where-Object{$null -ne $_.average}); if ($dp.Count -eq 0) { return $null }
+    $tsData = Get-SafePropertyValue -InputObject @($ts)[0] -Path @('data'); if (-not $tsData) { return $null }
+    $dp = @($tsData|Where-Object{$null -ne $_.average}); if ($dp.Count -eq 0) { return $null }
     return [math]::Round(($dp|Measure-Object -Property average -Average).Average,1)
 }
 
