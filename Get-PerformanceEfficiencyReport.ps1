@@ -209,8 +209,8 @@ if ($planId) {
     }
 }
 
-# App Insights detection (check app settings for APPINSIGHTS_INSTRUMENTATIONKEY / APPLICATIONINSIGHTS_CONNECTION_STRING)
-$appInsightsResult = Add-QueryResult -Label 'Application Insights Components' -Arguments @('monitor','app-insights','component','show','--app',$AppServiceName,'--resource-group',$ResourceGroup)
+# App Insights detection — use resource list (fast, no extension required) instead of app-insights CLI extension
+$appInsightsResult = Add-QueryResult -Label 'Application Insights Components' -Arguments @('resource','list','--resource-group',$ResourceGroup,'--resource-type','microsoft.insights/components')
 
 # App Service metrics
 $appCpuMetrics = Add-QueryResult -Label 'App Service CPU Metrics'      -Arguments @('monitor','metrics','list','--resource',$webAppId,'--metric','CpuPercentage','--interval','PT1H','--aggregation','Average','--start-time',$metricStart,'--end-time',$metricEnd)
@@ -316,7 +316,7 @@ if ($appSettings.Success -and $appSettings.Data) {
     $aiKey    = @($appSettings.Data|Where-Object{$_.name -match 'APPINSIGHTS_INSTRUMENTATIONKEY|APPLICATIONINSIGHTS_CONNECTION_STRING'}) | Select-Object -First 1
     $hasAppInsights = $null -ne $aiKey
 }
-if (-not $hasAppInsights -and $appInsightsResult.Success -and $appInsightsResult.Data) { $hasAppInsights = $true }
+if (-not $hasAppInsights -and $appInsightsResult.Success -and $appInsightsResult.Data -and @($appInsightsResult.Data).Count -gt 0) { $hasAppInsights = $true }
 $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Is Application Insights enabled for end-to-end transaction tracing?' -Priority 2 -Status (if($hasAppInsights){'PASS'}else{'FAIL'}) -Notes (if($hasAppInsights){'Application Insights connection detected in app settings or component.'}else{'No Application Insights instrumentation key or connection string found in app settings.'})))
 
 # Alert rules for response time / CPU

@@ -497,7 +497,9 @@ function Get-MetricAverage {
     if ($series.PSObject.Properties['value']) { $series = $series.value }
     $timeseries = Get-SafePropertyValue -InputObject @($series)[0] -Path @('timeseries')
     if (-not $timeseries) { return $null }
-    $dataPoints = @($timeseries)[0].data | Where-Object { $null -ne $_.average }
+    $tsData = Get-SafePropertyValue -InputObject @($timeseries)[0] -Path @('data')
+    if (-not $tsData) { return $null }
+    $dataPoints = @($tsData) | Where-Object { $null -ne $_.average }
     if (-not $dataPoints -or @($dataPoints).Count -eq 0) { return $null }
     $avg = ($dataPoints | Measure-Object -Property average -Average).Average
     return [math]::Round($avg, 1)
@@ -510,7 +512,9 @@ function Get-MetricMax {
     if ($series.PSObject.Properties['value']) { $series = $series.value }
     $timeseries = Get-SafePropertyValue -InputObject @($series)[0] -Path @('timeseries')
     if (-not $timeseries) { return $null }
-    $dataPoints = @($timeseries)[0].data | Where-Object { $null -ne $_.maximum }
+    $tsData = Get-SafePropertyValue -InputObject @($timeseries)[0] -Path @('data')
+    if (-not $tsData) { return $null }
+    $dataPoints = @($tsData) | Where-Object { $null -ne $_.maximum }
     if (-not $dataPoints -or @($dataPoints).Count -eq 0) { return $null }
     return [math]::Round(($dataPoints | Measure-Object -Property maximum -Maximum).Maximum, 1)
 }
