@@ -274,7 +274,7 @@ function Get-AppSettingValue {
     param([string]$Name)
     if (-not $appSettings.Success -or -not $appSettings.Data) { return $null }
     $s = @($appSettings.Data | Where-Object { $_.name -eq $Name }) | Select-Object -First 1
-    return if ($s) { $s.value } else { $null }
+    if ($s) { return $s.value } else { return $null }
 }
 
 # ---- PE:03 Select the Right Services and Tiers ----
@@ -289,7 +289,7 @@ if ($plan -and $plan.Success -and $plan.Data) {
         $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is the Premium v3 (Pv3) tier used for production WordPress?' -Priority 3 -Status 'WARN' -Notes ("Tier = {0}; Size = {1}. Not Premium v3 — confirm this meets WordPress performance requirements." -f $tier,$size)))
     }
     $dedicated = $tier -notmatch 'Free|Shared'
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is dedicated compute (Standard or Premium) used — avoiding Free/Shared tiers?' -Priority 3 -Status (if($dedicated){'PASS'}else{'FAIL'}) -Notes ("Tier = {0}. {1}" -f $tier,(if($dedicated){'Dedicated compute is in use.'}else{'Free/Shared tiers share compute — not suitable for production.'}))))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is dedicated compute (Standard or Premium) used — avoiding Free/Shared tiers?' -Priority 3 -Status $(if($dedicated){'PASS'}else{'FAIL'}) -Notes ("Tier = {0}. {1}" -f $tier,$(if($dedicated){'Dedicated compute is in use.'}else{'Free/Shared tiers share compute — not suitable for production.'}))))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is the Premium v3 (Pv3) tier used for production WordPress?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve App Service plan.'))
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is dedicated compute (Standard or Premium) used — avoiding Free/Shared tiers?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve App Service plan.'))
@@ -298,8 +298,8 @@ if ($plan -and $plan.Success -and $plan.Data) {
 if ($siteConfig.Success -and $siteConfig.Data) {
     $alwaysOn = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('alwaysOn')
     $http2    = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('http20Enabled')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is Always On enabled to prevent PHP cold-start latency?' -Priority 3 -Status (if($alwaysOn){'PASS'}else{'FAIL'}) -Notes ("alwaysOn = {0}." -f $alwaysOn)))
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is HTTP/2 enabled for improved protocol efficiency?' -Priority 3 -Status (if($http2){'PASS'}else{'FAIL'}) -Notes ("http20Enabled = {0}." -f $http2)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is Always On enabled to prevent PHP cold-start latency?' -Priority 3 -Status $(if($alwaysOn){'PASS'}else{'FAIL'}) -Notes ("alwaysOn = {0}." -f $alwaysOn)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is HTTP/2 enabled for improved protocol efficiency?' -Priority 3 -Status $(if($http2){'PASS'}else{'FAIL'}) -Notes ("http20Enabled = {0}." -f $http2)))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is Always On enabled to prevent PHP cold-start latency?' -Priority 3 -Status 'UNKNOWN' -Notes 'Site config unavailable.'))
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is HTTP/2 enabled for improved protocol efficiency?' -Priority 3 -Status 'UNKNOWN' -Notes 'Site config unavailable.'))
@@ -308,8 +308,8 @@ if ($siteConfig.Success -and $siteConfig.Data) {
 if ($mysqlServer.Success -and $mysqlServer.Data) {
     $skuTier = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('sku','tier')
     $skuName = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('sku','name')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is the General Purpose tier used for standard production MySQL workloads?' -Priority 3 -Status (if($skuTier -eq 'GeneralPurpose'){'PASS'}elseif($skuTier -eq 'MemoryOptimized'){'PASS'}else{'WARN'}) -Notes ("MySQL SKU tier = {0} ({1}). General Purpose or Memory Optimized are recommended for production." -f $skuTier,$skuName)))
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is the Burstable tier limited to development and test environments only?' -Priority 3 -Status (if($skuTier -eq 'Burstable'){'WARN'}else{'PASS'}) -Notes ("MySQL SKU tier = {0}. {1}" -f $skuTier,(if($skuTier-eq'Burstable'){'Burstable tier detected — confirm this is not a production workload.'}else{'Not Burstable — appropriate for production.'}))))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is the General Purpose tier used for standard production MySQL workloads?' -Priority 3 -Status $(if($skuTier -eq 'GeneralPurpose'){'PASS'}elseif($skuTier -eq 'MemoryOptimized'){'PASS'}else{'WARN'}) -Notes ("MySQL SKU tier = {0} ({1}). General Purpose or Memory Optimized are recommended for production." -f $skuTier,$skuName)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is the Burstable tier limited to development and test environments only?' -Priority 3 -Status $(if($skuTier -eq 'Burstable'){'WARN'}else{'PASS'}) -Notes ("MySQL SKU tier = {0}. {1}" -f $skuTier,$(if($skuTier-eq'Burstable'){'Burstable tier detected — confirm this is not a production workload.'}else{'Not Burstable — appropriate for production.'}))))
     $iops    = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('storage','iops')
     $autoIo  = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('storage','autoIoScaling')
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Have IOPS limits been verified to scale with compute size?' -Priority 3 -Status 'MANUAL' -Notes ("provisioned IOPS = {0}; autoIoScaling = {1}. Verify IOPS is sufficient for the WordPress write volume. Review io_consumption_percent metric." -f $iops,$autoIo)))
@@ -323,7 +323,7 @@ if ($appSettings.Success -and $appSettings.Data) {
     $hasAppInsights = $null -ne $aiKey
 }
 if (-not $hasAppInsights -and $appInsightsResult.Success -and $appInsightsResult.Data -and @($appInsightsResult.Data).Count -gt 0) { $hasAppInsights = $true }
-$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Is Application Insights enabled for end-to-end transaction tracing?' -Priority 2 -Status (if($hasAppInsights){'PASS'}else{'FAIL'}) -Notes (if($hasAppInsights){'Application Insights connection detected in app settings or component.'}else{'No Application Insights instrumentation key or connection string found in app settings.'})))
+$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Is Application Insights enabled for end-to-end transaction tracing?' -Priority 2 -Status $(if($hasAppInsights){'PASS'}else{'FAIL'}) -Notes $(if($hasAppInsights){'Application Insights connection detected in app settings or component.'}else{'No Application Insights instrumentation key or connection string found in app settings.'})))
 
 # Alert rules for response time / CPU
 if ($appAlertRules.Success -and $appAlertRules.Data -and @($appAlertRules.Data).Count -gt 0) {
@@ -339,11 +339,11 @@ if ($mysqlDiagSettings.Success -and $mysqlDiagSettings.Data -and @($mysqlDiagSet
     $slowLogDiag = @($mysqlDiagSettings.Data | ForEach-Object { $_.logs | Where-Object { $_.category -eq 'MySqlSlowLogs' -and $_.enabled -eq $true } })
     $mysqlLogsToLa = $slowLogDiag.Count -gt 0
 }
-$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Is Log Analytics used for historical trend analysis via KQL queries on MySqlSlowLogs?' -Priority 2 -Status (if($mysqlLogsToLa){'PASS'}else{'FAIL'}) -Notes (if($mysqlLogsToLa){'MySqlSlowLogs routing to Log Analytics found in diagnostic settings.'}else{'No diagnostic settings found routing MySqlSlowLogs to Log Analytics.'})))
+$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Is Log Analytics used for historical trend analysis via KQL queries on MySqlSlowLogs?' -Priority 2 -Status $(if($mysqlLogsToLa){'PASS'}else{'FAIL'}) -Notes $(if($mysqlLogsToLa){'MySqlSlowLogs routing to Log Analytics found in diagnostic settings.'}else{'No diagnostic settings found routing MySqlSlowLogs to Log Analytics.'})))
 
 # Slow_queries count tracked — slow_query_log
 $slqVal = if($paramSlowQuery.Success -and $paramSlowQuery.Data){Get-SafePropertyValue -InputObject $paramSlowQuery.Data -Path @('value')}else{$null}
-$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Is the Slow_queries count tracked?' -Priority 3 -Status (if($slqVal-eq'ON'){'PASS'}elseif($null-eq$slqVal){'UNKNOWN'}else{'FAIL'}) -Notes ("slow_query_log = {0}." -f $slqVal)))
+$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Is the Slow_queries count tracked?' -Priority 3 -Status $(if($slqVal-eq'ON'){'PASS'}elseif($null-eq$slqVal){'UNKNOWN'}else{'FAIL'}) -Notes ("slow_query_log = {0}." -f $slqVal)))
 
 # CPU / memory metrics for App Service
 if ($null -ne $avgAppCpu) {
@@ -361,7 +361,7 @@ if ($autoscaleSettings -and $autoscaleSettings.Success -and $autoscaleSettings.D
 
 # MySQL metrics available
 if ($null -ne $avgMysqlCpu) {
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Are MySQL CPU, Memory, and Storage IO monitored for saturation?' -Priority 3 -Status (if($avgMysqlCpu -gt 80 -or $avgMysqlIo -gt 80){'WARN'}else{'PASS'}) -Notes ("Avg MySQL CPU = {0}%; Avg Memory = {1}%; Avg IO = {2}% over {3} days." -f $avgMysqlCpu,$avgMysqlMem,$avgMysqlIo,$MetricLookbackDays)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Are MySQL CPU, Memory, and Storage IO monitored for saturation?' -Priority 3 -Status $(if($avgMysqlCpu -gt 80 -or $avgMysqlIo -gt 80){'WARN'}else{'PASS'}) -Notes ("Avg MySQL CPU = {0}%; Avg Memory = {1}%; Avg IO = {2}% over {3} days." -f $avgMysqlCpu,$avgMysqlMem,$avgMysqlIo,$MetricLookbackDays)))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:04 Performance Measurement and Monitoring' -Question 'Are MySQL CPU, Memory, and Storage IO monitored for saturation?' -Priority 3 -Status 'UNKNOWN' -Notes 'No MySQL metric data available.'))
 }
@@ -383,9 +383,9 @@ if ($autoscaleSettings -and $autoscaleSettings.Success -and $autoscaleSettings.D
             $metric -match 'CpuPercentage' -and [double]$thresh -ge 55 -and [double]$thresh -le 75
         })
         $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is autoscaling configured based on CPU, memory, or request queue depth?' -Priority 3 -Status 'PASS' -Notes ("Autoscale configured. Min = {0}; Max = {1}; Scale-out rules = {2}; Scale-in rules = {3}." -f $minInst,$maxInst,$scaleOutRules.Count,$scaleInRules.Count)))
-        $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is the scale-out trigger set at ~65% CPU?' -Priority 3 -Status (if($cpu65Rule.Count-gt0){'PASS'}else{'WARN'}) -Notes (if($cpu65Rule.Count-gt0){'Scale-out rule with CPU threshold 55-75% found.'}else{'No CPU scale-out rule found in the 55-75% range. Review autoscale rules.'})))
-        $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Are scale-in rules defined?' -Priority 3 -Status (if($scaleInRules.Count-gt0){'PASS'}else{'FAIL'}) -Notes ("{0} scale-in rule(s) found." -f $scaleInRules.Count)))
-        $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is the maximum instance count defined within App Service plan limits?' -Priority 3 -Status (if($null-ne$maxInst-and$maxInst-gt1){'PASS'}else{'WARN'}) -Notes ("Max instances = {0}." -f $maxInst)))
+        $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is the scale-out trigger set at ~65% CPU?' -Priority 3 -Status $(if($cpu65Rule.Count-gt0){'PASS'}else{'WARN'}) -Notes $(if($cpu65Rule.Count-gt0){'Scale-out rule with CPU threshold 55-75% found.'}else{'No CPU scale-out rule found in the 55-75% range. Review autoscale rules.'})))
+        $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Are scale-in rules defined?' -Priority 3 -Status $(if($scaleInRules.Count-gt0){'PASS'}else{'FAIL'}) -Notes ("{0} scale-in rule(s) found." -f $scaleInRules.Count)))
+        $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is the maximum instance count defined within App Service plan limits?' -Priority 3 -Status $(if($null-ne$maxInst-and$maxInst-gt1){'PASS'}else{'WARN'}) -Notes ("Max instances = {0}." -f $maxInst)))
         $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Have autoscaling rules been tested with load simulations?' -Priority 3 -Status 'MANUAL' -Notes ("Autoscale defined. Confirm load tests have been run to verify scale-out and scale-in behaviour, and that warm-up time has been accounted for." )))
     } else {
         $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is autoscaling configured based on CPU, memory, or request queue depth?' -Priority 3 -Status 'FAIL' -Notes 'No autoscale settings found targeting the App Service plan.'))
@@ -403,15 +403,15 @@ if ($autoscaleSettings -and $autoscaleSettings.Success -and $autoscaleSettings.D
 # ARR affinity
 if ($webApp.Success -and $webApp.Data) {
     $clientAffinity = Get-SafePropertyValue -InputObject $webApp.Data -Path @('clientAffinityEnabled')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is ARR affinity disabled to evenly distribute requests?' -Priority 3 -Status (if($clientAffinity-eq$false){'PASS'}else{'FAIL'}) -Notes ("clientAffinityEnabled = {0}. {1}" -f $clientAffinity,(if($clientAffinity-eq$false){'ARR affinity is disabled — good for stateless scaling.'}else{'ARR affinity is enabled — routes sessions to the same instance, limiting autoscale effectiveness.'}))))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is ARR affinity disabled to evenly distribute requests?' -Priority 3 -Status $(if($clientAffinity-eq$false){'PASS'}else{'FAIL'}) -Notes ("clientAffinityEnabled = {0}. {1}" -f $clientAffinity,$(if($clientAffinity-eq$false){'ARR affinity is disabled — good for stateless scaling.'}else{'ARR affinity is enabled — routes sessions to the same instance, limiting autoscale effectiveness.'}))))
 }
 
 # MySQL autoscale IOPS
 if ($mysqlServer.Success -and $mysqlServer.Data) {
     $autoIo = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('storage','autoIoScaling')
     $iops   = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('storage','iops')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is autoscale IOPS used for variable WordPress traffic?' -Priority 3 -Status (if($autoIo-eq'Enabled'){'PASS'}else{'WARN'}) -Notes ("autoIoScaling = {0}; provisioned IOPS = {1}." -f $autoIo,$iops)))
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is pre-provisioned IOPS used for steady predictable workloads?' -Priority 3 -Status (if($autoIo-eq'Disabled'-or$null-eq$autoIo){'PASS'}else{'MANUAL'}) -Notes ("autoIoScaling = {0}; provisioned IOPS = {1}. {2}" -f $autoIo,$iops,(if($autoIo-eq'Enabled'){'Autoscale IOPS in use — for steady workloads, pre-provisioned may be more predictable.'}else{'Pre-provisioned IOPS in use.'}))))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is autoscale IOPS used for variable WordPress traffic?' -Priority 3 -Status $(if($autoIo-eq'Enabled'){'PASS'}else{'WARN'}) -Notes ("autoIoScaling = {0}; provisioned IOPS = {1}." -f $autoIo,$iops)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is pre-provisioned IOPS used for steady predictable workloads?' -Priority 3 -Status $(if($autoIo-eq'Disabled'-or$null-eq$autoIo){'PASS'}else{'MANUAL'}) -Notes ("autoIoScaling = {0}; provisioned IOPS = {1}. {2}" -f $autoIo,$iops,$(if($autoIo-eq'Enabled'){'Autoscale IOPS in use — for steady workloads, pre-provisioned may be more predictable.'}else{'Pre-provisioned IOPS in use.'}))))
 
     # Read replicas
     $replicaCount = if($mysqlReplicas.Success -and $mysqlReplicas.Data){@($mysqlReplicas.Data).Count}else{0}
@@ -436,8 +436,8 @@ if ($appSettings.Success -and $appSettings.Data) {
     $disableWpCron = Get-AppSettingValue -Name 'DISABLE_WP_CRON'
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is PHP OPcache enabled on App Service?' -Priority 3 -Status 'MANUAL' -Notes 'OPcache is enabled by default on Azure App Service PHP. Confirm opcache.enable=1 via phpinfo() or App Service PHP configuration and tune opcache.memory_consumption and opcache.max_accelerated_files for the WordPress codebase.'))
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is FastCGI page caching enabled for anonymous visitors?' -Priority 3 -Status 'MANUAL' -Notes 'Cannot determine FastCGI/page cache from az CLI. Check App Service PHP configuration and WordPress caching plugin (W3 Total Cache, WP Super Cache, LiteSpeed Cache).'))
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Has WordPress wp-cron been offloaded to an external scheduler?' -Priority 3 -Status (if($disableWpCron-eq'true'){'PASS'}else{'FAIL'}) -Notes ("DISABLE_WP_CRON = {0}. {1}" -f $disableWpCron,(if($disableWpCron-eq'true'){'wp-cron is disabled — ensure an external scheduler triggers wp-cron.php.'}else{'DISABLE_WP_CRON not set. wp-cron runs on every page request, adding CPU overhead.'}))))
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is WEBSITE_RUN_FROM_PACKAGE=1 configured?' -Priority 3 -Status (if($runFromPkg-eq'1'){'PASS'}else{'FAIL'}) -Notes ("WEBSITE_RUN_FROM_PACKAGE = {0}. Read-only filesystem from ZIP package improves cold-start and prevents file-level drift." -f $runFromPkg)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Has WordPress wp-cron been offloaded to an external scheduler?' -Priority 3 -Status $(if($disableWpCron-eq'true'){'PASS'}else{'FAIL'}) -Notes ("DISABLE_WP_CRON = {0}. {1}" -f $disableWpCron,$(if($disableWpCron-eq'true'){'wp-cron is disabled — ensure an external scheduler triggers wp-cron.php.'}else{'DISABLE_WP_CRON not set. wp-cron runs on every page request, adding CPU overhead.'}))))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is WEBSITE_RUN_FROM_PACKAGE=1 configured?' -Priority 3 -Status $(if($runFromPkg-eq'1'){'PASS'}else{'FAIL'}) -Notes ("WEBSITE_RUN_FROM_PACKAGE = {0}. Read-only filesystem from ZIP package improves cold-start and prevents file-level drift." -f $runFromPkg)))
 } else {
     foreach ($q in @('Is PHP OPcache enabled on App Service?','Is FastCGI page caching enabled for anonymous visitors?','Has WordPress wp-cron been offloaded to an external scheduler?','Is WEBSITE_RUN_FROM_PACKAGE=1 configured?')) {
         $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question $q -Priority 3 -Status 'UNKNOWN' -Notes 'App settings unavailable.'))
@@ -447,15 +447,15 @@ if ($appSettings.Success -and $appSettings.Data) {
 # Redis
 $hasRedis = $redisList.Success -and $redisList.Data -and @($redisList.Data).Count -gt 0
 $redisAppSetting = if($appSettings.Success -and $appSettings.Data){@($appSettings.Data|Where-Object{$_.name -match 'REDIS|WP_REDIS|OBJECT_CACHE'})|Select-Object -First 1}else{$null}
-$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is WordPress object caching backed by Azure Cache for Redis?' -Priority 2 -Status (if($hasRedis-and$null-ne$redisAppSetting){'MANUAL'}elseif($hasRedis){'WARN'}else{'FAIL'}) -Notes (if($hasRedis){"Redis instance(s): {0}. Redis app setting found = {1}. Confirm the WordPress Redis Object Cache plugin is active." -f ((@($redisList.Data)|ForEach-Object{$_.name})-join', '),$null-ne$redisAppSetting}else{'No Redis instances found in resource group. WordPress object caching defaults to database — consider Azure Cache for Redis.'})))
+$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is WordPress object caching backed by Azure Cache for Redis?' -Priority 2 -Status $(if($hasRedis-and$null-ne$redisAppSetting){'MANUAL'}elseif($hasRedis){'WARN'}else{'FAIL'}) -Notes $(if($hasRedis){"Redis instance(s): {0}. Redis app setting found = {1}. Confirm the WordPress Redis Object Cache plugin is active." -f ((@($redisList.Data)|ForEach-Object{$_.name})-join', '),$null-ne$redisAppSetting}else{'No Redis instances found in resource group. WordPress object caching defaults to database — consider Azure Cache for Redis.'})))
 
 # CDN / AFD
 $hasCdn = ($afdProfiles.Success -and $afdProfiles.Data -and @($afdProfiles.Data).Count-gt 0) -or ($cdnProfiles.Success -and $cdnProfiles.Data -and @($cdnProfiles.Data).Count-gt 0)
-$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Are static assets served from Azure CDN / Azure Front Door?' -Priority 3 -Status (if($hasCdn){'MANUAL'}else{'FAIL'}) -Notes (if($hasCdn){'CDN/AFD profile found. Confirm WordPress is configured to serve static assets through CDN.'}else{'No AFD or CDN profiles found. Static assets served directly from App Service increase response time and origin load.'})))
+$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Are static assets served from Azure CDN / Azure Front Door?' -Priority 3 -Status $(if($hasCdn){'MANUAL'}else{'FAIL'}) -Notes $(if($hasCdn){'CDN/AFD profile found. Confirm WordPress is configured to serve static assets through CDN.'}else{'No AFD or CDN profiles found. Static assets served directly from App Service increase response time and origin load.'})))
 
 # Storage for media
 $hasStorage = $storagAccts.Success -and $storagAccts.Data -and @($storagAccts.Data).Count-gt 0
-$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is WordPress media stored in Azure Blob Storage with CDN delivery?' -Priority 2 -Status (if($hasStorage -and $hasCdn){'MANUAL'}elseif($hasStorage){'WARN'}else{'FAIL'}) -Notes (if($hasStorage-and$hasCdn){'Storage account and CDN/AFD found. Confirm WordPress media is stored in Blob and delivered via CDN.'}elseif($hasStorage){'Storage account found but no CDN. Media delivery lacks CDN acceleration.'}else{'No storage accounts found. WordPress media may be on App Service filesystem.'})))
+$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is WordPress media stored in Azure Blob Storage with CDN delivery?' -Priority 2 -Status $(if($hasStorage -and $hasCdn){'MANUAL'}elseif($hasStorage){'WARN'}else{'FAIL'}) -Notes $(if($hasStorage-and$hasCdn){'Storage account and CDN/AFD found. Confirm WordPress media is stored in Blob and delivered via CDN.'}elseif($hasStorage){'Storage account found but no CDN. Media delivery lacks CDN acceleration.'}else{'No storage accounts found. WordPress media may be on App Service filesystem.'})))
 
 # innodb_buffer_pool_size
 if ($paramInnodbBuf.Success -and $paramInnodbBuf.Data) {
@@ -469,7 +469,7 @@ if ($paramInnodbBuf.Success -and $paramInnodbBuf.Data) {
 
 if ($paramInnodbFilePer.Success -and $paramInnodbFilePer.Data) {
     $val = Get-SafePropertyValue -InputObject $paramInnodbFilePer.Data -Path @('value')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_file_per_table enabled?' -Priority 3 -Status (if($val-eq'ON'){'PASS'}else{'FAIL'}) -Notes ("innodb_file_per_table = {0}. Enabled reduces fragmentation and allows OPTIMIZE TABLE to reclaim space." -f $val)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_file_per_table enabled?' -Priority 3 -Status $(if($val-eq'ON'){'PASS'}else{'FAIL'}) -Notes ("innodb_file_per_table = {0}. Enabled reduces fragmentation and allows OPTIMIZE TABLE to reclaim space." -f $val)))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_file_per_table enabled?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve innodb_file_per_table.'))
 }
@@ -484,7 +484,7 @@ if ($paramInnodbLog.Success -and $paramInnodbLog.Data) {
 # innodb_tmpdir
 if ($paramInnodbTmpDir.Success -and $paramInnodbTmpDir.Data) {
     $val = Get-SafePropertyValue -InputObject $paramInnodbTmpDir.Data -Path @('value')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_tmpdir set to /mnt/temp for SSD-speed temporary sort operations?' -Priority 3 -Status (if($val-match'/mnt/temp'){'PASS'}else{'WARN'}) -Notes ("innodb_tmpdir = '{0}'. Set to /mnt/temp to use the SSD-backed temp volume for sort and group-by operations." -f $val)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_tmpdir set to /mnt/temp for SSD-speed temporary sort operations?' -Priority 3 -Status $(if($val-match'/mnt/temp'){'PASS'}else{'WARN'}) -Notes ("innodb_tmpdir = '{0}'. Set to /mnt/temp to use the SSD-backed temp volume for sort and group-by operations." -f $val)))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is innodb_tmpdir set to /mnt/temp for SSD-speed temporary sort operations?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve innodb_tmpdir.'))
 }
@@ -507,7 +507,7 @@ $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Op
 if ($paramMaxConn.Success -and $paramMaxConn.Data) {
     $maxConn = Get-SafePropertyValue -InputObject $paramMaxConn.Data -Path @('value')
     $avgConn = Get-MetricAverage -MetricResult $mysqlConnMetrics
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is MySQL max_connections configured to reflect actual WordPress concurrency needs?' -Priority 3 -Status (if($null-ne$avgConn-and[int]$avgConn-gt([int]$maxConn*0.8)){'WARN'}else{'MANUAL'}) -Notes ("max_connections = {0}; avg active connections over {1} days = {2}. Connections above 80% of max_connections risk connection exhaustion." -f $maxConn,$MetricLookbackDays,$avgConn)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is MySQL max_connections configured to reflect actual WordPress concurrency needs?' -Priority 3 -Status $(if($null-ne$avgConn-and[int]$avgConn-gt([int]$maxConn*0.8)){'WARN'}else{'MANUAL'}) -Notes ("max_connections = {0}; avg active connections over {1} days = {2}. Connections above 80% of max_connections risk connection exhaustion." -f $maxConn,$MetricLookbackDays,$avgConn)))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:07 Optimise Code and Infrastructure' -Question 'Is MySQL max_connections configured to reflect actual WordPress concurrency needs?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve max_connections.'))
 }
@@ -515,14 +515,14 @@ if ($paramMaxConn.Success -and $paramMaxConn.Data) {
 # ---- PE:08 Optimise Data Performance ----
 if ($paramLogNoIndex.Success -and $paramLogNoIndex.Data) {
     $val = Get-SafePropertyValue -InputObject $paramLogNoIndex.Data -Path @('value')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:08 Optimise Data Performance' -Question 'Is log_queries_not_using_indexes enabled?' -Priority 3 -Status (if($val-eq'ON'){'PASS'}else{'FAIL'}) -Notes ("log_queries_not_using_indexes = {0}. Enable to capture queries missing indexes in slow query log." -f $val)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:08 Optimise Data Performance' -Question 'Is log_queries_not_using_indexes enabled?' -Priority 3 -Status $(if($val-eq'ON'){'PASS'}else{'FAIL'}) -Notes ("log_queries_not_using_indexes = {0}. Enable to capture queries missing indexes in slow query log." -f $val)))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:08 Optimise Data Performance' -Question 'Is log_queries_not_using_indexes enabled?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve log_queries_not_using_indexes.'))
 }
 
 if ($slqVal) {
     $lqtVal = if($paramLongQueryTime.Success -and $paramLongQueryTime.Data){Get-SafePropertyValue -InputObject $paramLongQueryTime.Data -Path @('value')}else{'unknown'}
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:08 Optimise Data Performance' -Question 'Have WordPress database indexes been reviewed using slow query logs?' -Priority 2 -Status (if($slqVal-eq'ON'){'MANUAL'}else{'FAIL'}) -Notes ("slow_query_log = {0}; long_query_time = {1}s. {2}" -f $slqVal,$lqtVal,(if($slqVal-eq'ON'){'Slow query logging enabled. Review MySqlSlowLogs in Log Analytics to identify missing indexes.'}else{'Enable slow_query_log to identify queries that would benefit from indexes.'}))))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:08 Optimise Data Performance' -Question 'Have WordPress database indexes been reviewed using slow query logs?' -Priority 2 -Status $(if($slqVal-eq'ON'){'MANUAL'}else{'FAIL'}) -Notes ("slow_query_log = {0}; long_query_time = {1}s. {2}" -f $slqVal,$lqtVal,$(if($slqVal-eq'ON'){'Slow query logging enabled. Review MySqlSlowLogs in Log Analytics to identify missing indexes.'}else{'Enable slow_query_log to identify queries that would benefit from indexes.'}))))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:08 Optimise Data Performance' -Question 'Have WordPress database indexes been reviewed using slow query logs?' -Priority 2 -Status 'UNKNOWN' -Notes 'Could not retrieve slow_query_log parameter.'))
 }
@@ -534,17 +534,17 @@ $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:08 Op
 # Health check
 if ($siteConfig.Success -and $siteConfig.Data) {
     $hcPath = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('healthCheckPath')
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:09 Prioritise Critical Flows' -Question 'Is the App Service health check configured to probe the critical WordPress flow path?' -Priority 3 -Status (if([string]::IsNullOrWhiteSpace($hcPath)){'FAIL'}else{'PASS'}) -Notes ("healthCheckPath = '{0}'." -f $hcPath)))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:09 Prioritise Critical Flows' -Question 'Is the App Service health check configured to probe the critical WordPress flow path?' -Priority 3 -Status $(if([string]::IsNullOrWhiteSpace($hcPath)){'FAIL'}else{'PASS'}) -Notes ("healthCheckPath = '{0}'." -f $hcPath)))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:09 Prioritise Critical Flows' -Question 'Is the App Service health check configured to probe the critical WordPress flow path?' -Priority 3 -Status 'UNKNOWN' -Notes 'Site config unavailable.'))
 }
 
 # AFD / App Gateway for routing critical flows
 $hasGateway = ($appGateways.Success -and $appGateways.Data -and @($appGateways.Data).Count-gt 0)
-$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:09 Prioritise Critical Flows' -Question 'Is Azure Front Door or Application Gateway used to route critical flows to healthy instances?' -Priority 3 -Status (if($hasCdn -or $hasGateway){'MANUAL'}else{'FAIL'}) -Notes (if($hasCdn){'AFD profile found. Confirm routing rules prioritise critical WordPress flows.'}elseif($hasGateway){'Application Gateway found. Confirm routing rules prioritise critical flows.'}else{'No AFD or Application Gateway detected. Without a reverse proxy, no global health-based routing is possible.'})))
+$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:09 Prioritise Critical Flows' -Question 'Is Azure Front Door or Application Gateway used to route critical flows to healthy instances?' -Priority 3 -Status $(if($hasCdn -or $hasGateway){'MANUAL'}else{'FAIL'}) -Notes $(if($hasCdn){'AFD profile found. Confirm routing rules prioritise critical WordPress flows.'}elseif($hasGateway){'Application Gateway found. Confirm routing rules prioritise critical flows.'}else{'No AFD or Application Gateway detected. Without a reverse proxy, no global health-based routing is possible.'})))
 
 # Queue-based load levelling
-$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:09 Prioritise Critical Flows' -Question 'Is Queue-Based Load Levelling used for non-critical background tasks?' -Priority 3 -Status (if($serviceBus.Success -and $serviceBus.Data -and @($serviceBus.Data).Count-gt 0){'MANUAL'}else{'MANUAL'}) -Notes ("Service Bus found = {0}. Confirm background tasks (email, media processing, WooCommerce jobs) are queued rather than executed synchronously on the request path." -f ($serviceBus.Success -and $serviceBus.Data -and @($serviceBus.Data).Count-gt 0))))
+$findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:09 Prioritise Critical Flows' -Question 'Is Queue-Based Load Levelling used for non-critical background tasks?' -Priority 3 -Status $(if($serviceBus.Success -and $serviceBus.Data -and @($serviceBus.Data).Count-gt 0){'MANUAL'}else{'MANUAL'}) -Notes ("Service Bus found = {0}. Confirm background tasks (email, media processing, WooCommerce jobs) are queued rather than executed synchronously on the request path." -f ($serviceBus.Success -and $serviceBus.Data -and @($serviceBus.Data).Count-gt 0))))
 
 # ---- PE:10 Optimise Operational Tasks ----
 # MySQL maintenance window
@@ -565,7 +565,7 @@ if ($paramMaintenanceWin.Success -and $paramMaintenanceWin.Data) {
 # Deployment slots used
 if ($slots.Success -and $slots.Data) {
     $slotCount = @($slots.Data).Count
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:10 Optimise Operational Tasks' -Question 'Are deployment slots and swap used for App Service deployments?' -Priority 3 -Status (if($slotCount-gt0){'PASS'}else{'FAIL'}) -Notes ("{0} deployment slot(s) configured. {1}" -f $slotCount,(if($slotCount-gt0){'Deployment slots allow zero-downtime deployments via slot swap.'}else{'No deployment slots. Deploy directly to production — risk of downtime during deployments.'}))))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:10 Optimise Operational Tasks' -Question 'Are deployment slots and swap used for App Service deployments?' -Priority 3 -Status $(if($slotCount-gt0){'PASS'}else{'FAIL'}) -Notes ("{0} deployment slot(s) configured. {1}" -f $slotCount,$(if($slotCount-gt0){'Deployment slots allow zero-downtime deployments via slot swap.'}else{'No deployment slots. Deploy directly to production — risk of downtime during deployments.'}))))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:10 Optimise Operational Tasks' -Question 'Are deployment slots and swap used for App Service deployments?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve deployment slots.'))
 }
@@ -583,7 +583,7 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
     $replicaCount = if ($mysqlReplicas.Success -and $mysqlReplicas.Data) { @($mysqlReplicas.Data).Count } else { 0 }
     $needsGpOrMo = ($haMode -ne 'Disabled') -or ($replicaCount -gt 0)
     if ($needsGpOrMo) {
-        $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is General Purpose or Memory Optimized selected when HA, read replicas, or accelerated logs are required?' -Priority 5 -Status (if ($skuTier -match 'GeneralPurpose|MemoryOptimized') { 'PASS' } else { 'FAIL' }) -Notes ("SKU tier = {0}, HA mode = {1}, read replicas = {2}. HA and read replicas require General Purpose or Memory Optimized tiers — Burstable does not support these features." -f $skuTier, $haMode, $replicaCount)))
+        $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is General Purpose or Memory Optimized selected when HA, read replicas, or accelerated logs are required?' -Priority 5 -Status $(if ($skuTier -match 'GeneralPurpose|MemoryOptimized') { 'PASS' } else { 'FAIL' }) -Notes ("SKU tier = {0}, HA mode = {1}, read replicas = {2}. HA and read replicas require General Purpose or Memory Optimized tiers — Burstable does not support these features." -f $skuTier, $haMode, $replicaCount)))
     } else {
         $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:03 Select the Right Services and Tiers' -Question 'Is General Purpose or Memory Optimized selected when HA, read replicas, or accelerated logs are required?' -Priority 5 -Status 'PASS' -Notes ("SKU tier = {0}, HA mode = {1}, read replicas = {2}. No HA or replicas configured — Burstable is permitted in this configuration." -f $skuTier, $haMode, $replicaCount)))
     }
@@ -607,13 +607,13 @@ if ($mysqlReplicas.Success -and $mysqlReplicas.Data -and @($mysqlReplicas.Data).
         $repVcores = if ($repSku -match '(\d+)') { [int]$Matches[1] } else { 0 }
         if ($repVcores -lt $primaryVcores) { $underSizedReplicas += $rep.name }
     }
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Are read replicas provisioned with equal or greater compute and storage than the primary?' -Priority 5 -Status (if ($underSizedReplicas.Count -eq 0) { 'PASS' } else { 'WARN' }) -Notes (if ($underSizedReplicas.Count -eq 0) { ('Primary SKU = {0}. All {1} replica(s) have equal or greater vCore count.' -f $primarySku, $replicaCount) } else { ('Primary SKU = {0}. Replica(s) with fewer vCores: {1}. Under-sized replicas may lag under load.' -f $primarySku, ($underSizedReplicas -join ', ')) })))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Are read replicas provisioned with equal or greater compute and storage than the primary?' -Priority 5 -Status $(if ($underSizedReplicas.Count -eq 0) { 'PASS' } else { 'WARN' }) -Notes $(if ($underSizedReplicas.Count -eq 0) { ('Primary SKU = {0}. All {1} replica(s) have equal or greater vCore count.' -f $primarySku, $replicaCount) } else { ('Primary SKU = {0}. Replica(s) with fewer vCores: {1}. Under-sized replicas may lag under load.' -f $primarySku, ($underSizedReplicas -join ', ')) })))
     # Check for replication lag alert rule
     $lagAlertExists = $false
     if ($appAlertRules.Success -and $appAlertRules.Data) {
         $lagAlertExists = @($appAlertRules.Data | Where-Object { $_.description -match 'replication' -or $_.name -match 'replica' -or ($_.criteria.allOf | Where-Object { $_.metricName -match 'replication_lag' }) }).Count -gt 0
     }
-    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is replication lag on MySQL read replicas monitored via an alert rule?' -Priority 5 -Status (if ($lagAlertExists) { 'PASS' } else { 'WARN' }) -Notes (if ($lagAlertExists) { 'A replication lag-related alert rule was detected.' } else { 'No replication lag alert rule detected. Create an Azure Monitor alert on the replication_lag_in_seconds metric with a threshold of ≤30 seconds to detect replica drift.' })))
+    $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Is replication lag on MySQL read replicas monitored via an alert rule?' -Priority 5 -Status $(if ($lagAlertExists) { 'PASS' } else { 'WARN' }) -Notes $(if ($lagAlertExists) { 'A replication lag-related alert rule was detected.' } else { 'No replication lag alert rule detected. Create an Azure Monitor alert on the replication_lag_in_seconds metric with a threshold of ≤30 seconds to detect replica drift.' })))
 } else {
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Are read replicas used to distribute WordPress read workloads?' -Priority 5 -Status 'MANUAL' -Notes 'No MySQL read replicas found. For high read-to-write ratio workloads (typical for WordPress), read replicas can offload SELECT queries from the primary to improve throughput.'))
     $findings.Add((New-PeFinding -PeArea 'Performance Efficiency' -SubArea 'PE:05 Scaling and Partitioning' -Question 'Are read replicas provisioned with equal or greater compute and storage than the primary?' -Priority 5 -Status 'PASS' -Notes 'No read replicas found — not applicable.'))

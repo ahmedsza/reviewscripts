@@ -528,7 +528,10 @@ function Get-MetricMax {
 
 # Advisor cost recommendations
 if ($advisorCost.Success -and $advisorCost.Data) {
-    $openRecs = @($advisorCost.Data | Where-Object { $null -eq $_?.properties?.suppressionIds -or @($_?.properties?.suppressionIds).Count -eq 0 })
+    $openRecs = @($advisorCost.Data | Where-Object {
+        $suppIds = if ($_.PSObject.Properties['properties'] -and $null -ne $_.properties) { $_.properties.suppressionIds } else { $null }
+        $null -eq $suppIds -or @($suppIds).Count -eq 0
+    })
     if ($openRecs.Count -eq 0) {
         $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:01 Financial Responsibility Culture' -Question 'Are Azure Advisor cost recommendations reviewed and acted on regularly?' -Priority 3 -Status 'PASS' -Notes 'No open Advisor cost recommendations found in resource group.'))
     } else {
@@ -875,7 +878,7 @@ if ($appDiagSettings.Success -and $appDiagSettings.Data -and @($appDiagSettings.
 # WordPress database query optimisation (Priority 2)
 if ($paramSlowQueryLog.Success -and $paramSlowQueryLog.Data) {
     $slqValue = Get-SafePropertyValue -InputObject $paramSlowQueryLog.Data -Path @('value')
-    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:11 Optimise Code Costs' -Question 'Have WordPress database queries been optimised using slow query logs?' -Priority 2 -Status (if ($slqValue -eq 'ON') { 'MANUAL' } else { 'FAIL' }) -Notes ('slow_query_log = {0}. {1}' -f $slqValue, (if ($slqValue -eq 'ON') { 'Slow query logs are enabled. Review MySqlSlowLogs in Log Analytics to identify and optimise expensive WordPress queries.' } else { 'Enable slow_query_log to identify queries driving unnecessary CPU and I/O costs.' }))))
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:11 Optimise Code Costs' -Question 'Have WordPress database queries been optimised using slow query logs?' -Priority 2 -Status $(if ($slqValue -eq 'ON') { 'MANUAL' } else { 'FAIL' }) -Notes ('slow_query_log = {0}. {1}' -f $slqValue, $(if ($slqValue -eq 'ON') { 'Slow query logs are enabled. Review MySqlSlowLogs in Log Analytics to identify and optimise expensive WordPress queries.' } else { 'Enable slow_query_log to identify queries driving unnecessary CPU and I/O costs.' }))))
 } else {
     $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:11 Optimise Code Costs' -Question 'Have WordPress database queries been optimised using slow query logs?' -Priority 2 -Status 'UNKNOWN' -Notes 'Could not retrieve slow_query_log parameter.'))
 }
@@ -919,7 +922,7 @@ if ($autoscaleSettings -and $autoscaleSettings.Success -and $autoscaleSettings.D
         $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:12 Optimise Scaling Costs' -Question 'Are autoscale minimum/maximum instance limits, trigger thresholds, scale-in rules, and load test validation defined?' -Priority 3 -Status 'FAIL' -Notes 'No autoscale settings found for the App Service plan. Without autoscaling the App Service runs at a fixed instance count regardless of traffic, potentially wasting cost at low-traffic periods.'))
     }
 } else {
-    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:12 Optimise Scaling Costs' -Question 'Are autoscale minimum/maximum instance limits, trigger thresholds, scale-in rules, and load test validation defined?' -Priority 3 -Status (if ($autoscaleSettings) { 'FAIL' } else { 'UNKNOWN' }) -Notes 'Could not retrieve autoscale settings for the resource group.'))
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:12 Optimise Scaling Costs' -Question 'Are autoscale minimum/maximum instance limits, trigger thresholds, scale-in rules, and load test validation defined?' -Priority 3 -Status $(if ($autoscaleSettings) { 'FAIL' } else { 'UNKNOWN' }) -Notes 'Could not retrieve autoscale settings for the resource group.'))
 }
 
 # MySQL storage provisioned conservatively (Priority 3)
@@ -992,7 +995,7 @@ $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:02 Budge
 if ($budgets.Success -and $budgets.Data -and @($budgets.Data).Count -gt 0) {
     $budgetCount = @($budgets.Data).Count
     $overBudget  = @($budgets.Data | Where-Object { [double]($_.currentSpend.amount) -ge ([double]($_.amount.amount) * 0.9) })
-    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:02 Budget' -Question 'Is the Azure budget set with a buffer to account for spike activity?' -Priority 4 -Status (if ($overBudget.Count -gt 0) { 'WARN' } else { 'PASS' }) -Notes ('{0} budget(s) defined. {1}' -f $budgetCount, (if ($overBudget.Count -gt 0) { '{0} budget(s) are at or above 90% of limit — review whether budget limit includes headroom for traffic spikes.' -f $overBudget.Count } else { 'Budgets appear within limits. Confirm limits include buffer for seasonal or traffic spike events.' }))))
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:02 Budget' -Question 'Is the Azure budget set with a buffer to account for spike activity?' -Priority 4 -Status $(if ($overBudget.Count -gt 0) { 'WARN' } else { 'PASS' }) -Notes ('{0} budget(s) defined. {1}' -f $budgetCount, $(if ($overBudget.Count -gt 0) { '{0} budget(s) are at or above 90% of limit — review whether budget limit includes headroom for traffic spikes.' -f $overBudget.Count } else { 'Budgets appear within limits. Confirm limits include buffer for seasonal or traffic spike events.' }))))
 } else {
     $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:02 Budget' -Question 'Is the Azure budget set with a buffer to account for spike activity?' -Priority 4 -Status 'FAIL' -Notes 'No Azure Consumption budgets found in this scope. Create a budget in Cost Management for the resource group or subscription with at least a 10–20% buffer above expected spend.'))
 }
@@ -1005,7 +1008,7 @@ if ($reservations.Success -and $reservations.Data -and @($reservations.Data).Cou
 # ---- CO:03 Cost Monitoring — P4 (new section) ----
 if ($budgets.Success -and $budgets.Data -and @($budgets.Data).Count -gt 0) {
     $alertedBudgets = @($budgets.Data | Where-Object { $_.notifications -and $_.notifications.PSObject.Properties.Count -gt 1 })
-    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:03 Cost Monitoring' -Question 'Are budget alerts configured at multiple thresholds (e.g. 80%, 100%, 120%)?' -Priority 4 -Status (if ($alertedBudgets.Count -gt 0) { 'PASS' } else { 'WARN' }) -Notes ('{0} budget(s) found; {1} have multiple notification thresholds. Configure alerts at ≥2 thresholds (e.g. 80% forecast, 100% actual) to provide early warning before breaching.' -f @($budgets.Data).Count, $alertedBudgets.Count)))
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:03 Cost Monitoring' -Question 'Are budget alerts configured at multiple thresholds (e.g. 80%, 100%, 120%)?' -Priority 4 -Status $(if ($alertedBudgets.Count -gt 0) { 'PASS' } else { 'WARN' }) -Notes ('{0} budget(s) found; {1} have multiple notification thresholds. Configure alerts at ≥2 thresholds (e.g. 80% forecast, 100% actual) to provide early warning before breaching.' -f @($budgets.Data).Count, $alertedBudgets.Count)))
 } else {
     $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:03 Cost Monitoring' -Question 'Are budget alerts configured at multiple thresholds (e.g. 80%, 100%, 120%)?' -Priority 4 -Status 'FAIL' -Notes 'No budgets found — alerts cannot be configured. Create Azure Consumption budgets with notification thresholds at 80%, 100%, and 120%.'))
 }
@@ -1021,9 +1024,9 @@ if ($policyAssignments.Success -and $policyAssignments.Data -and @($policyAssign
     $appSkuPolicy    = @($allPolicies | Where-Object { $_.displayName -match 'App Service' -or $_.policyDefinitionId -match 'appservice' })
     $mysqlSkuPolicy  = @($allPolicies | Where-Object { $_.displayName -match '[Mm]y[Ss][Qq][Ll]' -or $_.policyDefinitionId -match 'mysql' })
     $tagPolicy       = @($allPolicies | Where-Object { $_.displayName -match '[Tt]ag' -or $_.policyDefinitionId -match 'tag' })
-    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:04 Policy' -Question 'Is Azure Policy used to enforce approved App Service SKUs?' -Priority 4 -Status (if ($appSkuPolicy.Count -gt 0) { 'PASS' } else { 'WARN' }) -Notes (if ($appSkuPolicy.Count -gt 0) { '{0} App Service-related policy assignment(s) found.' -f $appSkuPolicy.Count } else { 'No App Service SKU restriction policy found. Assign the built-in "Allowed locations" or a custom SKU-allowlist policy to prevent accidental provisioning of expensive SKUs.' })))
-    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:04 Policy' -Question 'Is Azure Policy used to enforce approved MySQL SKUs?' -Priority 4 -Status (if ($mysqlSkuPolicy.Count -gt 0) { 'PASS' } else { 'WARN' }) -Notes (if ($mysqlSkuPolicy.Count -gt 0) { '{0} MySQL-related policy assignment(s) found.' -f $mysqlSkuPolicy.Count } else { 'No MySQL SKU restriction policy found. A custom policy can enforce the approved MySQL tier list.' })))
-    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:04 Policy' -Question 'Is Azure Policy used to enforce required resource tags (cost centre, workload)?' -Priority 4 -Status (if ($tagPolicy.Count -gt 0) { 'PASS' } else { 'WARN' }) -Notes (if ($tagPolicy.Count -gt 0) { '{0} tag-related policy assignment(s) found.' -f $tagPolicy.Count } else { 'No tagging policy found. Enforce required tags (environment, owner, costCentre) via Azure Policy Modify/Deny effects to support cost allocation.' })))
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:04 Policy' -Question 'Is Azure Policy used to enforce approved App Service SKUs?' -Priority 4 -Status $(if ($appSkuPolicy.Count -gt 0) { 'PASS' } else { 'WARN' }) -Notes $(if ($appSkuPolicy.Count -gt 0) { '{0} App Service-related policy assignment(s) found.' -f $appSkuPolicy.Count } else { 'No App Service SKU restriction policy found. Assign the built-in "Allowed locations" or a custom SKU-allowlist policy to prevent accidental provisioning of expensive SKUs.' })))
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:04 Policy' -Question 'Is Azure Policy used to enforce approved MySQL SKUs?' -Priority 4 -Status $(if ($mysqlSkuPolicy.Count -gt 0) { 'PASS' } else { 'WARN' }) -Notes $(if ($mysqlSkuPolicy.Count -gt 0) { '{0} MySQL-related policy assignment(s) found.' -f $mysqlSkuPolicy.Count } else { 'No MySQL SKU restriction policy found. A custom policy can enforce the approved MySQL tier list.' })))
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:04 Policy' -Question 'Is Azure Policy used to enforce required resource tags (cost centre, workload)?' -Priority 4 -Status $(if ($tagPolicy.Count -gt 0) { 'PASS' } else { 'WARN' }) -Notes $(if ($tagPolicy.Count -gt 0) { '{0} tag-related policy assignment(s) found.' -f $tagPolicy.Count } else { 'No tagging policy found. Enforce required tags (environment, owner, costCentre) via Azure Policy Modify/Deny effects to support cost allocation.' })))
 } else {
     $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:04 Policy' -Question 'Is Azure Policy used to enforce approved App Service SKUs?' -Priority 4 -Status 'WARN' -Notes 'No policy assignments found. Use Azure Policy to restrict App Service plan SKUs to approved tiers.'))
     $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:04 Policy' -Question 'Is Azure Policy used to enforce approved MySQL SKUs?' -Priority 4 -Status 'WARN' -Notes 'No policy assignments found. Use Azure Policy to restrict MySQL Flexible Server SKUs to approved tiers.'))
@@ -1067,7 +1070,7 @@ $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:08 Optim
 if ($sslCertificates.Success -and $sslCertificates.Data -and @($sslCertificates.Data).Count -gt 0) {
     $managedCerts = @($sslCertificates.Data | Where-Object { $_.issuer -match 'Microsoft' -or $_.subjectName -match 'microsoft' -or $_.thumbprintAlgorithm -eq 'SHA1' -and $_.expirationDate -gt (Get-Date) })
     $allCertCount = @($sslCertificates.Data).Count
-    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:13 Optimise Personnel Time' -Question 'Are App Service Managed Certificates used for custom domains to eliminate certificate management cost?' -Priority 4 -Status (if ($allCertCount -gt 0) { 'MANUAL' } else { 'MANUAL' }) -Notes ('{0} SSL certificate(s) found on the App Service. Review the certificate list above — App Service Managed Certificates are free and auto-renew. Third-party certs incur purchase and renewal overhead.' -f $allCertCount)))
+    $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:13 Optimise Personnel Time' -Question 'Are App Service Managed Certificates used for custom domains to eliminate certificate management cost?' -Priority 4 -Status $(if ($allCertCount -gt 0) { 'MANUAL' } else { 'MANUAL' }) -Notes ('{0} SSL certificate(s) found on the App Service. Review the certificate list above — App Service Managed Certificates are free and auto-renew. Third-party certs incur purchase and renewal overhead.' -f $allCertCount)))
 } else {
     $findings.Add((New-CostFinding -CoArea 'Cost Optimization' -SubArea 'CO:13 Optimise Personnel Time' -Question 'Are App Service Managed Certificates used for custom domains?' -Priority 4 -Status 'MANUAL' -Notes 'Could not retrieve SSL certificate list. App Service Managed Certificates are free and auto-renewing — use them for custom domains instead of purchasing certificates externally.'))
 }

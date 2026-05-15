@@ -149,10 +149,16 @@ function Add-ReAssessmentSection {
 function Get-MetricAverage {
     param($MetricResult)
     if (-not $MetricResult.Success -or -not $MetricResult.Data) { return $null }
-    $series = $MetricResult.Data; if ($series.PSObject.Properties['value']) { $series = $series.value }
+    $series = $MetricResult.Data
+    if (-not ($series -is [System.Array]) -and $series.PSObject.Properties['value']) { $series = $series.value }
     $ts = Get-SafePropertyValue -InputObject @($series)[0] -Path @('timeseries'); if (-not $ts) { return $null }
-    $dp = @(@($ts)[0].data|Where-Object{$null -ne $_.average}); if ($dp.Count -eq 0) { return $null }
-    return [math]::Round(($dp|Measure-Object -Property average -Average).Average,1)
+    $tsData = Get-SafePropertyValue -InputObject @($ts)[0] -Path @('data'); if (-not $tsData) { return $null }
+    $values = @(foreach ($dp in @($tsData)) {
+        $v = Get-SafePropertyValue -InputObject $dp -Path @('average')
+        if ($null -ne $v) { [double]$v }
+    })
+    if ($values.Count -eq 0) { return $null }
+    return [math]::Round(($values | Measure-Object -Average).Average, 1)
 }
 
 # ---------------------------------------------------------------------------
@@ -204,7 +210,7 @@ if ($planId) {
     }
 }
 
-$appInsightsResult = Add-QueryResult -Label 'Application Insights Component' -Arguments @('monitor','app-insights','component','show','--app',$AppServiceName,'--resource-group',$ResourceGroup)
+$appInsightsResult = Add-QueryResult -Label 'Application Insights Component' -Arguments @('resource','list','--resource-group',$ResourceGroup,'--resource-type','microsoft.insights/components')
 $appAlertRules     = Add-QueryResult -Label 'Azure Monitor Alert Rules'       -Arguments @('monitor','metrics','alert','list','--resource-group',$ResourceGroup)
 $appDiagSettings   = Add-QueryResult -Label 'App Service Diagnostic Settings' -Arguments @('monitor','diagnostic-settings','list','--resource',$webAppId)
 
@@ -265,7 +271,7 @@ function Get-AppSettingValue {
     param([string]$Name)
     if (-not $appSettings.Success -or -not $appSettings.Data) { return $null }
     $s = @($appSettings.Data | Where-Object { $_.name -eq $Name }) | Select-Object -First 1
-    return if ($s) { $s.value } else { $null }
+    if ($s) { return $s.value } else { return $null }
 }
 
 # ---- RE:01 Design for Simplicity and Efficiency ----
@@ -280,13 +286,13 @@ if ($plan -and $plan.Success -and $plan.Data) {
 if ($mysqlServer.Success -and $mysqlServer.Data) {
     $skuTier = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('sku','tier')
     $skuName = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('sku','name')
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:01 Design for Simplicity and Efficiency' -Question 'Is the MySQL compute tier and SKU right-sized?' -Priority 3 -Status (if($avgMysqlCpu -lt 20){'WARN'}elseif($avgMysqlCpu -gt 80){'WARN'}else{'MANUAL'}) -Notes ("MySQL SKU: {0} / {1}. Avg CPU over {2} days = {3}%. Confirm SKU is not over- or under-provisioned." -f $skuTier,$skuName,$MetricLookbackDays,$avgMysqlCpu)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:01 Design for Simplicity and Efficiency' -Question 'Is the MySQL compute tier and SKU right-sized?' -Priority 3 -Status $(if($avgMysqlCpu -lt 20){'WARN'}elseif($avgMysqlCpu -gt 80){'WARN'}else{'MANUAL'}) -Notes ("MySQL SKU: {0} / {1}. Avg CPU over {2} days = {3}%. Confirm SKU is not over- or under-provisioned." -f $skuTier,$skuName,$MetricLookbackDays,$avgMysqlCpu)))
 }
 
 # ---- RE:03 Failure Mode Analysis ----
 if ($mysqlServer.Success -and $mysqlServer.Data) {
     $autoGrow = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('storage','autoGrow')
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:03 Failure Mode Analysis' -Question 'Is the MySQL storage full failure mode documented — with autogrow enabled and an alert set?' -Priority 3 -Status (if($autoGrow-eq'Enabled'){'MANUAL'}else{'FAIL'}) -Notes ("autoGrow = {0}. {1}" -f $autoGrow,(if($autoGrow-eq'Enabled'){'Storage autogrow is enabled. Confirm an alert is set before the autogrow threshold.'}else{'Storage autogrow is DISABLED — storage full will cause MySQL to stop accepting writes. Enable autogrow.'}))))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:03 Failure Mode Analysis' -Question 'Is the MySQL storage full failure mode documented — with autogrow enabled and an alert set?' -Priority 3 -Status $(if($autoGrow-eq'Enabled'){'MANUAL'}else{'FAIL'}) -Notes ("autoGrow = {0}. {1}" -f $autoGrow,$(if($autoGrow-eq'Enabled'){'Storage autogrow is enabled. Confirm an alert is set before the autogrow threshold.'}else{'Storage autogrow is DISABLED — storage full will cause MySQL to stop accepting writes. Enable autogrow.'}))))
 
     $maxConn = if($paramMaxConn.Success -and $paramMaxConn.Data){Get-SafePropertyValue -InputObject $paramMaxConn.Data -Path @('value')}else{'unknown'}
     $connPct  = if($null -ne $avgMysqlConn -and $maxConn -ne 'unknown') { [math]::Round(([double]$avgMysqlConn/[double]$maxConn)*100,1) } else { $null }
@@ -299,7 +305,7 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
 
 # ---- RE:04 Define Reliability and Recovery Targets ----
 $mysqlRetention = if($mysqlServer.Success -and $mysqlServer.Data){Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('backup','backupRetentionDays')}else{$null}
-$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:04 Define Reliability and Recovery Targets' -Question 'Is the MySQL backup retention period set to satisfy the RPO?' -Priority 3 -Status (if($null -ne $mysqlRetention){'MANUAL'}else{'UNKNOWN'}) -Notes ("backupRetentionDays = {0}. Verify this retention period is >= the defined RPO." -f $mysqlRetention)))
+$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:04 Define Reliability and Recovery Targets' -Question 'Is the MySQL backup retention period set to satisfy the RPO?' -Priority 3 -Status $(if($null -ne $mysqlRetention){'MANUAL'}else{'UNKNOWN'}) -Notes ("backupRetentionDays = {0}. Verify this retention period is >= the defined RPO." -f $mysqlRetention)))
 $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:04 Define Reliability and Recovery Targets' -Question 'Has an RTO been defined for the WordPress workload?' -Priority 2 -Status 'MANUAL' -Notes 'Cannot determine from az CLI. Verify an RTO is documented and tested via forced failover tests.'))
 $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:04 Define Reliability and Recovery Targets' -Question 'Has an RPO been defined and does it drive backup frequency and retention?' -Priority 2 -Status 'MANUAL' -Notes ("backupRetentionDays = {0}. Verify the RPO is documented and that backup frequency/retention settings reflect it." -f $mysqlRetention)))
 
@@ -311,13 +317,13 @@ if ($plan -and $plan.Success -and $plan.Data) {
 
     # P1: Premium v3 tier
     $isPv3 = $tier -match 'PremiumV3|Premium'
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is the App Service Plan on Premium v3 (Pv3) tier?' -Priority 1 -Status (if($isPv3){'PASS'}else{'FAIL'}) -Notes ("App Service Plan tier = {0}. Premium v3 is required for zone redundancy support." -f $tier)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is the App Service Plan on Premium v3 (Pv3) tier?' -Priority 1 -Status $(if($isPv3){'PASS'}else{'FAIL'}) -Notes ("App Service Plan tier = {0}. Premium v3 is required for zone redundancy support." -f $tier)))
 
     # P1: Zone redundancy
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is zone redundancy enabled on the App Service Plan?' -Priority 1 -Status (if($zoneRedun-eq$true){'PASS'}else{'FAIL'}) -Notes ("zoneRedundant = {0}. Zone redundancy protects against AZ-level failures." -f $zoneRedun)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is zone redundancy enabled on the App Service Plan?' -Priority 1 -Status $(if($zoneRedun-eq$true){'PASS'}else{'FAIL'}) -Notes ("zoneRedundant = {0}. Zone redundancy protects against AZ-level failures." -f $zoneRedun)))
 
     # P2: Min 3 instances for zone distribution
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is a minimum of 3 instances configured for zone distribution?' -Priority 2 -Status (if([int]$workers -ge 3){'PASS'}else{'FAIL'}) -Notes ("Current capacity (workers) = {0}. Zone-redundant Apps need >= 3 instances for AZ distribution." -f $workers)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is a minimum of 3 instances configured for zone distribution?' -Priority 2 -Status $(if([int]$workers -ge 3){'PASS'}else{'FAIL'}) -Notes ("Current capacity (workers) = {0}. Zone-redundant Apps need >= 3 instances for AZ distribution." -f $workers)))
 } else {
     foreach ($q in @('Is the App Service Plan on Premium v3 (Pv3) tier?','Is zone redundancy enabled on the App Service Plan?','Is a minimum of 3 instances configured for zone distribution?')) {
         $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question $q -Priority 1 -Status 'UNKNOWN' -Notes 'Could not retrieve App Service plan.'))
@@ -327,12 +333,12 @@ if ($plan -and $plan.Success -and $plan.Data) {
 # ARR affinity
 if ($webApp.Success -and $webApp.Data) {
     $clientAffinity = Get-SafePropertyValue -InputObject $webApp.Data -Path @('clientAffinityEnabled')
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is ARR Affinity disabled with session state managed externally?' -Priority 3 -Status (if($clientAffinity-eq$false){'PASS'}else{'FAIL'}) -Notes ("clientAffinityEnabled = {0}. With ARR affinity enabled, a failed instance causes session loss." -f $clientAffinity)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is ARR Affinity disabled with session state managed externally?' -Priority 3 -Status $(if($clientAffinity-eq$false){'PASS'}else{'FAIL'}) -Notes ("clientAffinityEnabled = {0}. With ARR affinity enabled, a failed instance causes session loss." -f $clientAffinity)))
 }
 
 # WordPress stateless — media in Blob
 $hasStorage = $storagAccts.Success -and $storagAccts.Data -and @($storagAccts.Data).Count-gt 0
-$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is WordPress configured as stateless — no local file system writes, media in Blob Storage?' -Priority 2 -Status (if($hasStorage){'MANUAL'}else{'FAIL'}) -Notes (if($hasStorage){'Storage account found. Confirm WordPress media library plugin routes uploads to Blob Storage, not the App Service filesystem.'}else{'No storage accounts found in resource group. WordPress media may be on App Service local filesystem — not HA, lost on instance recycle.'})))
+$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is WordPress configured as stateless — no local file system writes, media in Blob Storage?' -Priority 2 -Status $(if($hasStorage){'MANUAL'}else{'FAIL'}) -Notes $(if($hasStorage){'Storage account found. Confirm WordPress media library plugin routes uploads to Blob Storage, not the App Service filesystem.'}else{'No storage accounts found in resource group. WordPress media may be on App Service local filesystem — not HA, lost on instance recycle.'})))
 
 # MySQL zone-redundant HA
 if ($mysqlServer.Success -and $mysqlServer.Data) {
@@ -342,13 +348,13 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
     $standbyZone   = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('highAvailability','standbyAvailabilityZone')
     $autoGrow      = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('storage','autoGrow')
 
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is zone-redundant High Availability enabled on MySQL?' -Priority 3 -Status (if($haMode-eq'ZoneRedundant'){'PASS'}elseif($haMode-eq'SameZone'){'WARN'}else{'FAIL'}) -Notes ("HA mode = {0}; state = {1}." -f $haMode,$haState)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is zone-redundant High Availability enabled on MySQL?' -Priority 3 -Status $(if($haMode-eq'ZoneRedundant'){'PASS'}elseif($haMode-eq'SameZone'){'WARN'}else{'FAIL'}) -Notes ("HA mode = {0}; state = {1}." -f $haMode,$haState)))
 
     # P1: Primary and standby in separate AZs
     $zonesOk = $haMode -eq 'ZoneRedundant' -and $null -ne $standbyZone -and $primaryZone -ne $standbyZone
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Are primary and standby placed in separate availability zones?' -Priority 1 -Status (if($zonesOk){'PASS'}elseif($haMode-eq'ZoneRedundant'){'WARN'}else{'FAIL'}) -Notes ("HA mode = {0}; primary AZ = {1}; standby AZ = {2}." -f $haMode,$primaryZone,$standbyZone)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Are primary and standby placed in separate availability zones?' -Priority 1 -Status $(if($zonesOk){'PASS'}elseif($haMode-eq'ZoneRedundant'){'WARN'}else{'FAIL'}) -Notes ("HA mode = {0}; primary AZ = {1}; standby AZ = {2}." -f $haMode,$primaryZone,$standbyZone)))
 
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is storage autogrow enabled on MySQL?' -Priority 3 -Status (if($autoGrow-eq'Enabled'){'PASS'}else{'FAIL'}) -Notes ("autoGrow = {0}." -f $autoGrow)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:05 Build Redundancy' -Question 'Is storage autogrow enabled on MySQL?' -Priority 3 -Status $(if($autoGrow-eq'Enabled'){'PASS'}else{'FAIL'}) -Notes ("autoGrow = {0}." -f $autoGrow)))
 }
 
 # ---- RE:06 Implement a Scaling Strategy ----
@@ -364,15 +370,15 @@ if ($autoscaleSettings -and $autoscaleSettings.Success -and $autoscaleSettings.D
         $cpu65    = @($soRules|Where-Object{$m=(Get-SafePropertyValue -InputObject $_ -Path @('metricTrigger','metricName'));$t=(Get-SafePropertyValue -InputObject $_ -Path @('metricTrigger','threshold'));$m-match'Cpu'-and[double]$t-ge55-and[double]$t-le75})
 
         $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Is autoscale configured on the App Service Plan?' -Priority 2 -Status 'PASS' -Notes ("Autoscale found. Min = {0}; Max = {1}; Rules = {2}." -f $minInst,$maxInst,@($rules).Count)))
-        $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Do scale-out triggers fire at ~65% CPU?' -Priority 3 -Status (if($cpu65.Count-gt0){'PASS'}else{'WARN'}) -Notes (if($cpu65.Count-gt0){'CPU 55-75% scale-out rule found.'}else{'No CPU scale-out rule found in 55-75% range.'})))
-        $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Is the minimum instance count >= 2 (>= 3 for zone-redundant)?' -Priority 2 -Status (if($null-ne$minInst -and [int]$minInst-ge2){'PASS'}else{'FAIL'}) -Notes ("Min instances = {0}. Zone-redundant plans require >= 3." -f $minInst)))
+        $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Do scale-out triggers fire at ~65% CPU?' -Priority 3 -Status $(if($cpu65.Count-gt0){'PASS'}else{'WARN'}) -Notes $(if($cpu65.Count-gt0){'CPU 55-75% scale-out rule found.'}else{'No CPU scale-out rule found in 55-75% range.'})))
+        $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Is the minimum instance count >= 2 (>= 3 for zone-redundant)?' -Priority 2 -Status $(if($null-ne$minInst -and [int]$minInst-ge2){'PASS'}else{'FAIL'}) -Notes ("Min instances = {0}. Zone-redundant plans require >= 3." -f $minInst)))
     } else {
         $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Is autoscale configured on the App Service Plan?' -Priority 2 -Status 'FAIL' -Notes 'No autoscale settings targeting App Service plan.'))
         $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Do scale-out triggers fire at ~65% CPU?' -Priority 3 -Status 'FAIL' -Notes 'No autoscale configured.'))
         $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Is the minimum instance count >= 2 (>= 3 for zone-redundant)?' -Priority 2 -Status 'FAIL' -Notes 'No autoscale configured.'))
     }
 } else {
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Is autoscale configured on the App Service Plan?' -Priority 2 -Status (if($autoscaleSettings){'FAIL'}else{'UNKNOWN'}) -Notes 'Could not retrieve autoscale settings.'))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Is autoscale configured on the App Service Plan?' -Priority 2 -Status $(if($autoscaleSettings){'FAIL'}else{'UNKNOWN'}) -Notes 'Could not retrieve autoscale settings.'))
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Do scale-out triggers fire at ~65% CPU?' -Priority 3 -Status 'UNKNOWN' -Notes 'No autoscale data.'))
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:06 Implement a Scaling Strategy' -Question 'Is the minimum instance count >= 2 (>= 3 for zone-redundant)?' -Priority 2 -Status 'UNKNOWN' -Notes 'No autoscale data.'))
 }
@@ -383,9 +389,9 @@ if ($siteConfig.Success -and $siteConfig.Data) {
     $autoHeal = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('autoHealEnabled')
     $alwaysOn = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('alwaysOn')
 
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Is Health Check enabled with a meaningful path?' -Priority 2 -Status (if(-not[string]::IsNullOrWhiteSpace($hcPath)){'PASS'}else{'FAIL'}) -Notes ("healthCheckPath = '{0}'." -f $hcPath)))
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Are Auto-heal rules configured?' -Priority 2 -Status (if($autoHeal-eq$true){'PASS'}else{'FAIL'}) -Notes ("autoHealEnabled = {0}." -f $autoHeal)))
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Is Always On enabled?' -Priority 3 -Status (if($alwaysOn-eq$true){'PASS'}else{'FAIL'}) -Notes ("alwaysOn = {0}. Without Always On, the App Service process can be evicted after idle periods." -f $alwaysOn)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Is Health Check enabled with a meaningful path?' -Priority 2 -Status $(if(-not[string]::IsNullOrWhiteSpace($hcPath)){'PASS'}else{'FAIL'}) -Notes ("healthCheckPath = '{0}'." -f $hcPath)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Are Auto-heal rules configured?' -Priority 2 -Status $(if($autoHeal-eq$true){'PASS'}else{'FAIL'}) -Notes ("autoHealEnabled = {0}." -f $autoHeal)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Is Always On enabled?' -Priority 3 -Status $(if($alwaysOn-eq$true){'PASS'}else{'FAIL'}) -Notes ("alwaysOn = {0}. Without Always On, the App Service process can be evicted after idle periods." -f $alwaysOn)))
 } else {
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Is Health Check enabled with a meaningful path?' -Priority 2 -Status 'UNKNOWN' -Notes 'Site config unavailable.'))
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Are Auto-heal rules configured?' -Priority 2 -Status 'UNKNOWN' -Notes 'Site config unavailable.'))
@@ -395,7 +401,7 @@ if ($siteConfig.Success -and $siteConfig.Data) {
 # SSL/reconnection after interruptions
 if ($paramRequireSecure.Success -and $paramRequireSecure.Data) {
     $val = Get-SafePropertyValue -InputObject $paramRequireSecure.Data -Path @('value')
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Are MySQL require_secure_transport and TLS enabled and does the app handle reconnection after SSL interruptions?' -Priority 1 -Status (if($val-eq'ON'){'MANUAL'}else{'FAIL'}) -Notes ("require_secure_transport = {0}. {1}" -f $val,(if($val-eq'ON'){'SSL is enforced. Confirm WordPress connection retry handles SSL handshake interruptions after MySQL failover.'}else{'require_secure_transport is OFF — unencrypted MySQL connections are permitted.'}))))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Are MySQL require_secure_transport and TLS enabled and does the app handle reconnection after SSL interruptions?' -Priority 1 -Status $(if($val-eq'ON'){'MANUAL'}else{'FAIL'}) -Notes ("require_secure_transport = {0}. {1}" -f $val,$(if($val-eq'ON'){'SSL is enforced. Confirm WordPress connection retry handles SSL handshake interruptions after MySQL failover.'}else{'require_secure_transport is OFF — unencrypted MySQL connections are permitted.'}))))
 } else {
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:07 Self-Preservation and Self-Healing' -Question 'Are MySQL require_secure_transport and TLS enabled and does the app handle reconnection after SSL interruptions?' -Priority 1 -Status 'UNKNOWN' -Notes 'Could not retrieve require_secure_transport.'))
 }
@@ -407,7 +413,7 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
     $replicationRole = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('replicationRole')
 
     # P1: geo-redundant backup
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is MySQL geo-redundant backup enabled?' -Priority 1 -Status (if($geoBackup-eq'Enabled'){'PASS'}else{'FAIL'}) -Notes ("geoRedundantBackup = {0}. Geo-redundant backup is required to support cross-region restore for DR." -f $geoBackup)))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is MySQL geo-redundant backup enabled?' -Priority 1 -Status $(if($geoBackup-eq'Enabled'){'PASS'}else{'FAIL'}) -Notes ("geoRedundantBackup = {0}. Geo-redundant backup is required to support cross-region restore for DR." -f $geoBackup)))
 
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is the backup retention period set in line with defined RPO?' -Priority 3 -Status 'MANUAL' -Notes ("backupRetentionDays = {0}. Verify retention satisfies the defined RPO." -f $retention)))
 
@@ -415,16 +421,16 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Does MySQL use the default port (required for geo-restore)?' -Priority 3 -Status 'MANUAL' -Notes "MySQL Flexible Server always uses port 3306 — custom ports are not supported. Geo-restore requires port 3306. Confirm application configuration does not hardcode a non-default port."))
 
     # Media in Blob Storage
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is WordPress media stored in Azure Blob Storage rather than App Service local file system?' -Priority 2 -Status (if($hasStorage){'MANUAL'}else{'FAIL'}) -Notes (if($hasStorage){'Storage account present. Confirm WordPress media plugin stores uploads in Blob Storage.'}else{'No storage accounts found. Media on App Service local filesystem is NOT preserved during DR restore.'})))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is WordPress media stored in Azure Blob Storage rather than App Service local file system?' -Priority 2 -Status $(if($hasStorage){'MANUAL'}else{'FAIL'}) -Notes $(if($hasStorage){'Storage account present. Confirm WordPress media plugin stores uploads in Blob Storage.'}else{'No storage accounts found. Media on App Service local filesystem is NOT preserved during DR restore.'})))
 }
 
 # App Settings not hardcoded
-$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Are WordPress settings managed via App Service App Settings rather than committed to source control?' -Priority 3 -Status (if($appSettings.Success -and $appSettings.Data -and @($appSettings.Data).Count-gt 0){'MANUAL'}else{'UNKNOWN'}) -Notes ("{0} app setting(s) found. Confirm secrets and environment-specific configuration are App Service settings, not hardcoded in wp-config.php in source control." -f (if($appSettings.Success -and $appSettings.Data){@($appSettings.Data).Count}else{0}))))
+$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Are WordPress settings managed via App Service App Settings rather than committed to source control?' -Priority 3 -Status $(if($appSettings.Success -and $appSettings.Data -and @($appSettings.Data).Count-gt 0){'MANUAL'}else{'UNKNOWN'}) -Notes ("{0} app setting(s) found. Confirm secrets and environment-specific configuration are App Service settings, not hardcoded in wp-config.php in source control." -f $(if($appSettings.Success -and $appSettings.Data){@($appSettings.Data).Count}else{0}))))
 
 # CanNotDelete lock
 if ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data).Count-gt 0) {
-    $delLock = @($mysqlLock.Data|Where-Object{$_?.properties?.level -eq 'CanNotDelete' -or $_.level -eq 'CanNotDelete'})
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is the deleted server recovery window documented — with CanNotDelete lock applied?' -Priority 1 -Status (if($delLock.Count-gt 0){'PASS'}else{'WARN'}) -Notes ("{0} lock(s) on MySQL server; {1} CanNotDelete lock(s). MySQL servers deleted accidentally have a 5-day recovery window." -f @($mysqlLock.Data).Count,$delLock.Count)))
+    $delLock = @($mysqlLock.Data|Where-Object{$_.properties.level -eq 'CanNotDelete' -or $_.level -eq 'CanNotDelete'})
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is the deleted server recovery window documented — with CanNotDelete lock applied?' -Priority 1 -Status $(if($delLock.Count-gt 0){'PASS'}else{'WARN'}) -Notes ("{0} lock(s) on MySQL server; {1} CanNotDelete lock(s). MySQL servers deleted accidentally have a 5-day recovery window." -f @($mysqlLock.Data).Count,$delLock.Count)))
 } elseif ($mysqlLock.Success) {
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is the deleted server recovery window documented — with CanNotDelete lock applied?' -Priority 1 -Status 'FAIL' -Notes 'No locks found on MySQL Flexible Server. Apply a CanNotDelete lock to prevent accidental deletion.'))
 } else {
@@ -438,14 +444,14 @@ if ($appSettings.Success -and $appSettings.Data) {
     $hasAppInsights = $null -ne $aiKey
 }
 if (-not $hasAppInsights -and $appInsightsResult.Success -and $appInsightsResult.Data) { $hasAppInsights = $true }
-$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:10 Monitor Health and Measure Reliability' -Question 'Is Application Insights (or equivalent APM) enabled?' -Priority 2 -Status (if($hasAppInsights){'PASS'}else{'FAIL'}) -Notes (if($hasAppInsights){'Application Insights instrumentation detected.'}else{'No Application Insights instrumentation key or connection string found.'})))
+$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:10 Monitor Health and Measure Reliability' -Question 'Is Application Insights (or equivalent APM) enabled?' -Priority 2 -Status $(if($hasAppInsights){'PASS'}else{'FAIL'}) -Notes $(if($hasAppInsights){'Application Insights instrumentation detected.'}else{'No Application Insights instrumentation key or connection string found.'})))
 
 # Alert rules
 if ($appAlertRules.Success -and $appAlertRules.Data -and @($appAlertRules.Data).Count-gt 0) {
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:10 Monitor Health and Measure Reliability' -Question 'Are Azure Monitor metrics collected for App Service: CPU, memory, HTTP 5xx, response time, request queue?' -Priority 3 -Status 'MANUAL' -Notes ("{0} alert rule(s) found. Confirm rules cover CPU, memory, HTTP 5xx, response time, and request queue depth." -f @($appAlertRules.Data).Count)))
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:10 Monitor Health and Measure Reliability' -Question 'Are alerts configured for MySQL HA IO and SQL Status?' -Priority 3 -Status 'MANUAL' -Notes ("Review alert rules to confirm HA_IO_status and HA_SQL_status are covered. Total rules in RG = {0}." -f @($appAlertRules.Data).Count)))
     $storageAlert = @($appAlertRules.Data|Where-Object{$_.description -match 'storage|disk'})
-    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:10 Monitor Health and Measure Reliability' -Question 'Are alerts configured for MySQL storage utilisation approaching capacity before autogrow triggers?' -Priority 3 -Status (if($storageAlert.Count-gt0){'MANUAL'}else{'FAIL'}) -Notes (if($storageAlert.Count-gt0){"Possible storage alert found. Avg MySQL storage = {0}%. Verify threshold is below autogrow trigger." -f $avgMysqlStore}else{"No storage-related alerts detected. Avg MySQL storage = {0}%. Create alert at >70% storage_percent." -f $avgMysqlStore})))
+    $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:10 Monitor Health and Measure Reliability' -Question 'Are alerts configured for MySQL storage utilisation approaching capacity before autogrow triggers?' -Priority 3 -Status $(if($storageAlert.Count-gt0){'MANUAL'}else{'FAIL'}) -Notes $(if($storageAlert.Count-gt0){"Possible storage alert found. Avg MySQL storage = {0}%. Verify threshold is below autogrow trigger." -f $avgMysqlStore}else{"No storage-related alerts detected. Avg MySQL storage = {0}%. Create alert at >70% storage_percent." -f $avgMysqlStore})))
 } else {
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:10 Monitor Health and Measure Reliability' -Question 'Are Azure Monitor metrics collected for App Service: CPU, memory, HTTP 5xx, response time, request queue?' -Priority 3 -Status 'FAIL' -Notes 'No metric alert rules found.'))
     $findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:10 Monitor Health and Measure Reliability' -Question 'Are alerts configured for MySQL HA IO and SQL Status?' -Priority 3 -Status 'FAIL' -Notes 'No metric alert rules found.'))
@@ -462,19 +468,19 @@ if ($serviceHealthAlerts.Success -and $serviceHealthAlerts.Data -and @($serviceH
 # ---- RE WordPress-Specific ----
 # wp-cron
 $disableWpCron = if($appSettings.Success -and $appSettings.Data){$s=@($appSettings.Data|Where-Object{$_.name -eq 'DISABLE_WP_CRON'})|Select-Object -First 1;if($s){$s.value}else{$null}}else{$null}
-$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:WordPress-Specific' -Question 'Is WordPress wp-cron disabled and replaced with an external trigger?' -Priority 3 -Status (if($disableWpCron-eq'true'){'PASS'}else{'FAIL'}) -Notes ("DISABLE_WP_CRON = {0}. wp-cron runs on every page request — in a multi-instance environment this causes duplicate job execution and MySQL lock contention." -f $disableWpCron)))
+$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:WordPress-Specific' -Question 'Is WordPress wp-cron disabled and replaced with an external trigger?' -Priority 3 -Status $(if($disableWpCron-eq'true'){'PASS'}else{'FAIL'}) -Notes ("DISABLE_WP_CRON = {0}. wp-cron runs on every page request — in a multi-instance environment this causes duplicate job execution and MySQL lock contention." -f $disableWpCron)))
 
 # Redis object cache
 $hasRedis = $redisList.Success -and $redisList.Data -and @($redisList.Data).Count-gt 0
 $redisAppSetting = if($appSettings.Success -and $appSettings.Data){@($appSettings.Data|Where-Object{$_.name -match 'REDIS|WP_REDIS'})|Select-Object -First 1}else{$null}
-$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:WordPress-Specific' -Question 'Is WordPress object cache externalised (Redis) — not per-instance in-memory?' -Priority 2 -Status (if($hasRedis-and$null-ne$redisAppSetting){'MANUAL'}elseif($hasRedis){'WARN'}else{'FAIL'}) -Notes (if($hasRedis){"Redis found: {0}. App setting found = {1}. Confirm WordPress Redis Object Cache plugin is active — per-instance in-memory cache breaks multi-instance environments." -f ((@($redisList.Data)|ForEach-Object{$_.name})-join', '),$null-ne$redisAppSetting}else{'No Redis found. Without a shared object cache, each App Service instance has its own in-memory cache — breaking cache coherence in a multi-instance deployment.'})))
+$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:WordPress-Specific' -Question 'Is WordPress object cache externalised (Redis) — not per-instance in-memory?' -Priority 2 -Status $(if($hasRedis-and$null-ne$redisAppSetting){'MANUAL'}elseif($hasRedis){'WARN'}else{'FAIL'}) -Notes $(if($hasRedis){"Redis found: {0}. App setting found = {1}. Confirm WordPress Redis Object Cache plugin is active — per-instance in-memory cache breaks multi-instance environments." -f ((@($redisList.Data)|ForEach-Object{$_.name})-join', '),$null-ne$redisAppSetting}else{'No Redis found. Without a shared object cache, each App Service instance has its own in-memory cache — breaking cache coherence in a multi-instance deployment.'})))
 
 # CDN to absorb traffic spikes
 $hasCdn = ($afdProfiles.Success -and $afdProfiles.Data -and @($afdProfiles.Data).Count-gt 0) -or ($cdnProfiles.Success -and $cdnProfiles.Data -and @($cdnProfiles.Data).Count-gt 0)
-$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:WordPress-Specific' -Question 'Is a CDN placed in front of App Service to absorb traffic spikes?' -Priority 3 -Status (if($hasCdn){'MANUAL'}else{'FAIL'}) -Notes (if($hasCdn){'CDN/AFD profile found. Confirm static assets and anonymous page cache is served from the edge to reduce origin load during traffic spikes.'}else{'No CDN or AFD found. All traffic hits App Service origin — traffic spikes directly increase CPU and database load.'})))
+$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:WordPress-Specific' -Question 'Is a CDN placed in front of App Service to absorb traffic spikes?' -Priority 3 -Status $(if($hasCdn){'MANUAL'}else{'FAIL'}) -Notes $(if($hasCdn){'CDN/AFD profile found. Confirm static assets and anonymous page cache is served from the edge to reduce origin load during traffic spikes.'}else{'No CDN or AFD found. All traffic hits App Service origin — traffic spikes directly increase CPU and database load.'})))
 
 # ---- RE:09 Disaster Recovery — P5 additions ----
-$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is a multi-region failover strategy defined, with Azure Front Door routing?' -Priority 5 -Status (if($hasCdn){'MANUAL'}else{'WARN'}) -Notes (if($hasCdn){'AFD/CDN profile found. Confirm the AFD origin group is configured with priority routing to a secondary region origin so that if the primary App Service becomes unhealthy, AFD fails over automatically. Confirm MySQL geo-restore or cross-region replica is the data recovery path.'}else{'No AFD found. Multi-region failover requires Azure Front Door with health probe-based origin failover. Without AFD, there is no automated routing failover to a secondary region.'})))
+$findings.Add((New-ReFinding -ReArea 'Reliability' -SubArea 'RE:09 Disaster Recovery' -Question 'Is a multi-region failover strategy defined, with Azure Front Door routing?' -Priority 5 -Status $(if($hasCdn){'MANUAL'}else{'WARN'}) -Notes $(if($hasCdn){'AFD/CDN profile found. Confirm the AFD origin group is configured with priority routing to a secondary region origin so that if the primary App Service becomes unhealthy, AFD fails over automatically. Confirm MySQL geo-restore or cross-region replica is the data recovery path.'}else{'No AFD found. Multi-region failover requires Azure Front Door with health probe-based origin failover. Without AFD, there is no automated routing failover to a secondary region.'})))
 
 # ---------------------------------------------------------------------------
 # Build report
@@ -529,7 +535,7 @@ $summary = [ordered]@{
     'App Insights Present'             = $hasAppInsights
     'Redis Present'                    = $hasRedis
     'CDN/AFD Present'                  = $hasCdn
-    'CanNotDelete Lock on MySQL'       = ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data|Where-Object{$_.level-eq'CanNotDelete'-or$_?.properties?.level-eq'CanNotDelete'}).Count-gt 0)
+    'CanNotDelete Lock on MySQL'       = ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data|Where-Object{$_.level-eq'CanNotDelete'-or$_.properties.level-eq'CanNotDelete'}).Count-gt 0)
     'DISABLE_WP_CRON'                  = $disableWpCron
 }
 

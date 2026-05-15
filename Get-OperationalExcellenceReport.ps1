@@ -243,7 +243,7 @@ if ($paramMaintenanceWin.Success -and $paramMaintenanceWin.Data) {
     $customWindow = Get-SafePropertyValue -InputObject $mw -Path @('customWindow')
     $dayOfWeek    = Get-SafePropertyValue -InputObject $mw -Path @('dayOfWeek')
     $startHour    = Get-SafePropertyValue -InputObject $mw -Path @('startHour')
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:02 Standardised Operations' -Question 'Has a Custom Managed Maintenance Window been set aligned to lowest-traffic period?' -Priority 3 -Status (if($customWindow-eq'Enabled'){'PASS'}else{'FAIL'}) -Notes ("customWindow = {0}; dayOfWeek = {1}; startHour = {2}. {3}" -f $customWindow,$dayOfWeek,$startHour,(if($customWindow-eq'Enabled'){'Custom window set. Confirm this is a low-traffic period.'}else{'Custom window not enabled. Azure may schedule maintenance during business hours.'}))))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:02 Standardised Operations' -Question 'Has a Custom Managed Maintenance Window been set aligned to lowest-traffic period?' -Priority 3 -Status $(if($customWindow-eq'Enabled'){'PASS'}else{'FAIL'}) -Notes ("customWindow = {0}; dayOfWeek = {1}; startHour = {2}. {3}" -f $customWindow,$dayOfWeek,$startHour,$(if($customWindow-eq'Enabled'){'Custom window set. Confirm this is a low-traffic period.'}else{'Custom window not enabled. Azure may schedule maintenance during business hours.'}))))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:02 Standardised Operations' -Question 'Has a Custom Managed Maintenance Window been set aligned to lowest-traffic period?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve MySQL maintenance window.'))
 }
@@ -252,7 +252,7 @@ if ($paramMaintenanceWin.Success -and $paramMaintenanceWin.Data) {
 # CanNotDelete lock — P1
 if ($mysqlLock.Success -and $mysqlLock.Data -and @($mysqlLock.Data).Count-gt 0) {
     $delLock = @($mysqlLock.Data|Where-Object{$_.properties.level -eq 'CanNotDelete' -or $_.level -eq 'CanNotDelete'})
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:05 Infrastructure as Code' -Question 'Is a CanNotDelete management lock applied in IaC?' -Priority 1 -Status (if($delLock.Count-gt 0){'PASS'}else{'FAIL'}) -Notes ("{0} lock(s) on MySQL server; {1} CanNotDelete. A CanNotDelete lock on the MySQL Flexible Server prevents accidental deletion." -f @($mysqlLock.Data).Count,$delLock.Count)))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:05 Infrastructure as Code' -Question 'Is a CanNotDelete management lock applied in IaC?' -Priority 1 -Status $(if($delLock.Count-gt 0){'PASS'}else{'FAIL'}) -Notes ("{0} lock(s) on MySQL server; {1} CanNotDelete. A CanNotDelete lock on the MySQL Flexible Server prevents accidental deletion." -f @($mysqlLock.Data).Count,$delLock.Count)))
 } elseif ($mysqlLock.Success) {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:05 Infrastructure as Code' -Question 'Is a CanNotDelete management lock applied in IaC?' -Priority 1 -Status 'FAIL' -Notes 'No locks found on MySQL Flexible Server. Apply a CanNotDelete lock via IaC.'))
 } else {
@@ -269,7 +269,7 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
 
 # ---- OE:06 Workload Supply Chain and Deployment Pipelines ----
 $runFromPkg = Get-AppSettingValue -Name 'WEBSITE_RUN_FROM_PACKAGE'
-$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:06 Workload Supply Chain and Deployment Pipelines' -Question 'Is deployment from ZIP package (WEBSITE_RUN_FROM_PACKAGE=1) used?' -Priority 3 -Status (if($runFromPkg-eq'1'){'PASS'}else{'FAIL'}) -Notes ("WEBSITE_RUN_FROM_PACKAGE = {0}. ZIP deployment makes the filesystem read-only, preventing ad-hoc file edits and ensuring reproducible deployments." -f $runFromPkg)))
+$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:06 Workload Supply Chain and Deployment Pipelines' -Question 'Is deployment from ZIP package (WEBSITE_RUN_FROM_PACKAGE=1) used?' -Priority 3 -Status $(if($runFromPkg-eq'1'){'PASS'}else{'FAIL'}) -Notes ("WEBSITE_RUN_FROM_PACKAGE = {0}. ZIP deployment makes the filesystem read-only, preventing ad-hoc file edits and ensuring reproducible deployments." -f $runFromPkg)))
 
 if ($slots.Success -and $slots.Data -and @($slots.Data).Count-gt 0) {
     $slotNames = (@($slots.Data)|ForEach-Object{$_.name}) -join ', '
@@ -285,7 +285,7 @@ if ($appDiagSettings.Success -and $appDiagSettings.Data -and @($appDiagSettings.
     $hasLogAnalyticsDestination = @($appDiagSettings.Data|Where-Object{$_.workspaceId -and $_.workspaceId -ne ''})
     $appLogsEnabled = $hasLogAnalyticsDestination.Count -gt 0
 }
-$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Is diagnostic logging enabled on App Service — routed to Log Analytics?' -Priority 2 -Status (if($appLogsEnabled){'PASS'}else{'FAIL'}) -Notes (if($appLogsEnabled){'App Service diagnostic settings with Log Analytics workspace destination found.'}else{'No diagnostic settings routing App Service logs to a Log Analytics workspace. Configure via Azure Monitor > Diagnostic Settings.'})))
+$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Is diagnostic logging enabled on App Service — routed to Log Analytics?' -Priority 2 -Status $(if($appLogsEnabled){'PASS'}else{'FAIL'}) -Notes $(if($appLogsEnabled){'App Service diagnostic settings with Log Analytics workspace destination found.'}else{'No diagnostic settings routing App Service logs to a Log Analytics workspace. Configure via Azure Monitor > Diagnostic Settings.'})))
 
 # Application Insights
 $hasAppInsights = $false
@@ -294,12 +294,12 @@ if ($appSettings.Success -and $appSettings.Data) {
     $hasAppInsights = $null -ne $aiKey
 }
 if (-not $hasAppInsights -and $appInsightsResult.Success -and $appInsightsResult.Data) { $hasAppInsights = $true }
-$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Is Application Insights enabled for WordPress performance monitoring?' -Priority 2 -Status (if($hasAppInsights){'PASS'}else{'FAIL'}) -Notes (if($hasAppInsights){'Application Insights connection detected.'}else{'No Application Insights key or connection string found.'})))
+$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Is Application Insights enabled for WordPress performance monitoring?' -Priority 2 -Status $(if($hasAppInsights){'PASS'}else{'FAIL'}) -Notes $(if($hasAppInsights){'Application Insights connection detected.'}else{'No Application Insights key or connection string found.'})))
 
 # Health Check
 if ($siteConfig.Success -and $siteConfig.Data) {
     $hcPath = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('healthCheckPath')
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Is the Health Check feature enabled with a path probing the app, database, and cache?' -Priority 2 -Status (if(-not[string]::IsNullOrWhiteSpace($hcPath)){'PASS'}else{'FAIL'}) -Notes ("healthCheckPath = '{0}'." -f $hcPath)))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Is the Health Check feature enabled with a path probing the app, database, and cache?' -Priority 2 -Status $(if(-not[string]::IsNullOrWhiteSpace($hcPath)){'PASS'}else{'FAIL'}) -Notes ("healthCheckPath = '{0}'." -f $hcPath)))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Is the Health Check feature enabled with a path probing the app, database, and cache?' -Priority 2 -Status 'UNKNOWN' -Notes 'Site config unavailable.'))
 }
@@ -318,12 +318,12 @@ if ($mysqlDiagSettings.Success -and $mysqlDiagSettings.Data -and @($mysqlDiagSet
     $mysqlAuditToLa = @($mysqlDiagSettings.Data | ForEach-Object { $_.logs | Where-Object { $_.category -eq 'MySqlAuditLogs' -and $_.enabled -eq $true } }).Count -gt 0
     $mysqlSlowToLa  = @($mysqlDiagSettings.Data | ForEach-Object { $_.logs | Where-Object { $_.category -eq 'MySqlSlowLogs'  -and $_.enabled -eq $true } }).Count -gt 0
 }
-$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Are MySqlAuditLogs and MySqlSlowLogs routed to Log Analytics?' -Priority 2 -Status (if($mysqlAuditToLa -and $mysqlSlowToLa){'PASS'}elseif($mysqlAuditToLa -or $mysqlSlowToLa){'WARN'}else{'FAIL'}) -Notes ("MySqlAuditLogs to LA = {0}; MySqlSlowLogs to LA = {1}." -f $mysqlAuditToLa,$mysqlSlowToLa)))
+$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Are MySqlAuditLogs and MySqlSlowLogs routed to Log Analytics?' -Priority 2 -Status $(if($mysqlAuditToLa -and $mysqlSlowToLa){'PASS'}elseif($mysqlAuditToLa -or $mysqlSlowToLa){'WARN'}else{'FAIL'}) -Notes ("MySqlAuditLogs to LA = {0}; MySqlSlowLogs to LA = {1}." -f $mysqlAuditToLa,$mysqlSlowToLa)))
 
 # Server logs enabled (file-based)
 if ($paramSlowQuery.Success -and $paramSlowQuery.Data) {
     $slqVal = Get-SafePropertyValue -InputObject $paramSlowQuery.Data -Path @('value')
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Are server logs (file-based) enabled for rapid MySQL troubleshooting?' -Priority 3 -Status (if($slqVal-eq'ON'){'PASS'}else{'WARN'}) -Notes ("slow_query_log = {0}. File-based slow query logging supports rapid ad-hoc troubleshooting. Route to Log Analytics for historical analysis." -f $slqVal)))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Are server logs (file-based) enabled for rapid MySQL troubleshooting?' -Priority 3 -Status $(if($slqVal-eq'ON'){'PASS'}else{'WARN'}) -Notes ("slow_query_log = {0}. File-based slow query logging supports rapid ad-hoc troubleshooting. Route to Log Analytics for historical analysis." -f $slqVal)))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:07 Observability and Monitoring' -Question 'Are server logs (file-based) enabled for rapid MySQL troubleshooting?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve slow_query_log.'))
 }
@@ -349,7 +349,7 @@ $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:08 In
 # Alert integration with action groups
 if ($appAlertRules.Success -and $appAlertRules.Data -and @($appAlertRules.Data).Count-gt 0) {
     $withActionGroups = @($appAlertRules.Data|Where-Object{$_.actions -and @($_.actions).Count-gt 0})
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:08 Incident Management' -Question 'Are Azure Monitor alerts integrated with PagerDuty, Opsgenie, or Azure Action Groups?' -Priority 3 -Status (if($withActionGroups.Count-gt 0){'PASS'}else{'WARN'}) -Notes ("{0}/{1} alert rule(s) have action groups configured." -f $withActionGroups.Count,@($appAlertRules.Data).Count)))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:08 Incident Management' -Question 'Are Azure Monitor alerts integrated with PagerDuty, Opsgenie, or Azure Action Groups?' -Priority 3 -Status $(if($withActionGroups.Count-gt 0){'PASS'}else{'WARN'}) -Notes ("{0}/{1} alert rule(s) have action groups configured." -f $withActionGroups.Count,@($appAlertRules.Data).Count)))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:08 Incident Management' -Question 'Are Azure Monitor alerts integrated with PagerDuty, Opsgenie, or Azure Action Groups?' -Priority 3 -Status 'FAIL' -Notes 'No metric alert rules found in resource group.'))
 }
@@ -361,7 +361,7 @@ if ($paramRequireSecure.Success -and $paramRequireSecure.Data -and $paramTlsVers
     $tlsVal     = Get-SafePropertyValue -InputObject $paramTlsVersion.Data    -Path @('value')
     $slqVal     = Get-SafePropertyValue -InputObject $paramSlowQuery.Data     -Path @('value')
     $paramOk    = $reqSecVal-eq'ON' -and $tlsVal -match 'TLSv1.2' -and $slqVal-eq'ON'
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Is MySQL server parameter configuration automated for consistent baselines?' -Priority 3 -Status (if($paramOk){'PASS'}else{'WARN'}) -Notes ("require_secure_transport = {0}; tls_version = {1}; slow_query_log = {2}. {3}" -f $reqSecVal,$tlsVal,$slqVal,(if($paramOk){'Parameter baseline appears correctly set. Confirm automation (IaC or script) enforces these on every environment.'}else{'One or more baseline parameters are not at the expected value — confirm IaC or automation enforces the parameter baseline.'}))))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Is MySQL server parameter configuration automated for consistent baselines?' -Priority 3 -Status $(if($paramOk){'PASS'}else{'WARN'}) -Notes ("require_secure_transport = {0}; tls_version = {1}; slow_query_log = {2}. {3}" -f $reqSecVal,$tlsVal,$slqVal,$(if($paramOk){'Parameter baseline appears correctly set. Confirm automation (IaC or script) enforces these on every environment.'}else{'One or more baseline parameters are not at the expected value — confirm IaC or automation enforces the parameter baseline.'}))))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Is MySQL server parameter configuration automated for consistent baselines?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve all baseline parameters.'))
 }
@@ -369,7 +369,7 @@ if ($paramRequireSecure.Success -and $paramRequireSecure.Data -and $paramTlsVers
 # TLS certificate renewal automated
 if ($sslCerts.Success -and $sslCerts.Data -and @($sslCerts.Data).Count-gt 0) {
     $managedCerts = @($sslCerts.Data|Where-Object{$_.issuer -match 'DigiCert|Let.s Encrypt|Microsoft' -or $_.certType -eq 'Managed'})
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Is TLS certificate renewal automated via managed certificates or Key Vault auto-rotation?' -Priority 3 -Status (if($managedCerts.Count-gt 0){'PASS'}else{'MANUAL'}) -Notes ("{0} SSL cert(s); {1} appear to be managed/auto-renewed. Confirm all production certificates are on auto-renewal." -f @($sslCerts.Data).Count,$managedCerts.Count)))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Is TLS certificate renewal automated via managed certificates or Key Vault auto-rotation?' -Priority 3 -Status $(if($managedCerts.Count-gt 0){'PASS'}else{'MANUAL'}) -Notes ("{0} SSL cert(s); {1} appear to be managed/auto-renewed. Confirm all production certificates are on auto-renewal." -f @($sslCerts.Data).Count,$managedCerts.Count)))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Is TLS certificate renewal automated via managed certificates or Key Vault auto-rotation?' -Priority 3 -Status 'MANUAL' -Notes 'No SSL certificates found in resource group or could not retrieve. Confirm TLS certificates are managed with auto-renewal.'))
 }
@@ -380,12 +380,12 @@ if ($autoscaleSettings -and $autoscaleSettings.Success -and $autoscaleSettings.D
     if ($appPlanAs.Count-gt 0) {
         $rules = try { @(@($appPlanAs[0].profiles)[0].rules) } catch { @() }
         $siRules = @($rules|Where-Object{(Get-SafePropertyValue -InputObject $_ -Path @('scaleAction','direction'))-eq'Decrease'})
-        $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are scale-in rules automated in Azure Monitor?' -Priority 3 -Status (if($siRules.Count-gt 0){'PASS'}else{'FAIL'}) -Notes ("{0} scale-in rule(s) found in autoscale settings." -f $siRules.Count)))
+        $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are scale-in rules automated in Azure Monitor?' -Priority 3 -Status $(if($siRules.Count-gt 0){'PASS'}else{'FAIL'}) -Notes ("{0} scale-in rule(s) found in autoscale settings." -f $siRules.Count)))
     } else {
         $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are scale-in rules automated in Azure Monitor?' -Priority 3 -Status 'FAIL' -Notes 'No autoscale settings targeting App Service plan.'))
     }
 } else {
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are scale-in rules automated in Azure Monitor?' -Priority 3 -Status (if($autoscaleSettings){'FAIL'}else{'UNKNOWN'}) -Notes 'Could not retrieve autoscale settings.'))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are scale-in rules automated in Azure Monitor?' -Priority 3 -Status $(if($autoscaleSettings){'FAIL'}else{'UNKNOWN'}) -Notes 'Could not retrieve autoscale settings.'))
 }
 
 # Azure Policy enforcement
@@ -398,7 +398,7 @@ if ($policyAssignments.Success -and $policyAssignments.Data -and @($policyAssign
 # Advisor recommendations
 if ($advisorRecs.Success -and $advisorRecs.Data) {
     $openRecs = @($advisorRecs.Data|Where-Object{$null -eq $_.properties.suppressionIds -or @($_.properties.suppressionIds).Count -eq 0})
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are Azure Advisor recommendations reviewed periodically with automation considered?' -Priority 3 -Status (if($openRecs.Count-eq 0){'PASS'}else{'WARN'}) -Notes ("{0} open Advisor recommendation(s) in resource group." -f $openRecs.Count)))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are Azure Advisor recommendations reviewed periodically with automation considered?' -Priority 3 -Status $(if($openRecs.Count-eq 0){'PASS'}else{'WARN'}) -Notes ("{0} open Advisor recommendation(s) in resource group." -f $openRecs.Count)))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:10 Automation' -Question 'Are Azure Advisor recommendations reviewed periodically with automation considered?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve Advisor recommendations.'))
 }
@@ -417,16 +417,16 @@ if ($slots.Success -and $slots.Data -and @($slots.Data).Count-gt 0) {
 # ARR affinity disabled
 if ($webApp.Success -and $webApp.Data) {
     $affinity = Get-SafePropertyValue -InputObject $webApp.Data -Path @('clientAffinityEnabled')
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'Is ARR affinity disabled to keep WordPress stateless during deployment?' -Priority 3 -Status (if($affinity-eq$false){'PASS'}else{'FAIL'}) -Notes ("clientAffinityEnabled = {0}. Disabling ARR affinity ensures slot swaps work correctly in a stateless configuration." -f $affinity)))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'Is ARR affinity disabled to keep WordPress stateless during deployment?' -Priority 3 -Status $(if($affinity-eq$false){'PASS'}else{'FAIL'}) -Notes ("clientAffinityEnabled = {0}. Disabling ARR affinity ensures slot swaps work correctly in a stateless configuration." -f $affinity)))
 }
 
 # ZIP package deployment
-$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'Are immutable deployments used via ZIP package?' -Priority 3 -Status (if($runFromPkg-eq'1'){'PASS'}else{'FAIL'}) -Notes ("WEBSITE_RUN_FROM_PACKAGE = {0}." -f $runFromPkg)))
+$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'Are immutable deployments used via ZIP package?' -Priority 3 -Status $(if($runFromPkg-eq'1'){'PASS'}else{'FAIL'}) -Notes ("WEBSITE_RUN_FROM_PACKAGE = {0}." -f $runFromPkg)))
 
 # HA scaling on standby first
 if ($mysqlServer.Success -and $mysqlServer.Data) {
     $haMode = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('highAvailability','mode')
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'For HA-enabled servers is scaling performed on the standby first?' -Priority 3 -Status 'MANUAL' -Notes ("HA mode = {0}. {1}" -f $haMode,(if($haMode-eq'ZoneRedundant'){'Zone-redundant HA is enabled. Confirm the operational procedure scales the standby server before the primary to avoid failover during compute tier changes.'}else{'HA is not ZoneRedundant — standby-first scaling procedure may not apply.'}))))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'For HA-enabled servers is scaling performed on the standby first?' -Priority 3 -Status 'MANUAL' -Notes ("HA mode = {0}. {1}" -f $haMode,$(if($haMode-eq'ZoneRedundant'){'Zone-redundant HA is enabled. Confirm the operational procedure scales the standby server before the primary to avoid failover during compute tier changes.'}else{'HA is not ZoneRedundant — standby-first scaling procedure may not apply.'}))))
 
     # Primary keys for near-zero-downtime patching
     $innodbFilePer = if($paramInnodbFilePer.Success -and $paramInnodbFilePer.Data){Get-SafePropertyValue -InputObject $paramInnodbFilePer.Data -Path @('value')}else{'unknown'}
@@ -435,7 +435,7 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
 
 # OE:11 Safe Deployment Practices — P5 additions
 $oeSlotCount = if ($slots.Success -and $slots.Data) { @($slots.Data).Count } else { 0 }
-$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'Are blue-green or canary deployment patterns used?' -Priority 5 -Status (if($oeSlotCount -gt 0){'MANUAL'}else{'FAIL'}) -Notes ("Slot count = {0}. {1}" -f $oeSlotCount,(if($oeSlotCount -gt 0){'Deployment slots are present. Confirm the deployment process follows blue-green (100% swap) or canary (percentage routing via slot routing rules) patterns to limit blast radius of bad deployments.'}else{'No deployment slots — blue-green and canary patterns are not possible without at least one non-production slot.'}))))
+$findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'Are blue-green or canary deployment patterns used?' -Priority 5 -Status $(if($oeSlotCount -gt 0){'MANUAL'}else{'FAIL'}) -Notes ("Slot count = {0}. {1}" -f $oeSlotCount,$(if($oeSlotCount -gt 0){'Deployment slots are present. Confirm the deployment process follows blue-green (100% swap) or canary (percentage routing via slot routing rules) patterns to limit blast radius of bad deployments.'}else{'No deployment slots — blue-green and canary patterns are not possible without at least one non-production slot.'}))))
 $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:11 Safe Deployment Practices' -Question 'Is early-access maintenance policy applied to non-production MySQL servers to detect breaking changes?' -Priority 5 -Status 'MANUAL' -Notes 'Cannot determine non-production server list via az CLI. Configure non-production MySQL Flexible Servers to receive minor version updates earlier than production to detect breaking changes in the lower environment first.'))
 
 # ---- OE:01 Organisational Standards — P4 (new section) ----
@@ -466,7 +466,7 @@ $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:08 In
 # ---- OE:09 Testing — P4 (new section) ----
 if ($siteConfig.Success -and $siteConfig.Data) {
     $healthCheckPath = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('healthCheckPath')
-    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:09 Testing' -Question 'Has the App Service health check path been validated to return 200 under all deployment configurations?' -Priority 4 -Status (if($null -ne $healthCheckPath -and $healthCheckPath -ne ''){'MANUAL'}else{'WARN'}) -Notes ("healthCheckPath = {0}. {1}" -f $healthCheckPath,(if($null -ne $healthCheckPath -and $healthCheckPath -ne ''){'Confirm the health check endpoint returns HTTP 200 within the timeout after a slot swap and after autoscale scale-out events.'}else{'No health check path configured. Add a dedicated health check endpoint to enable App Service instance health monitoring and deployment validation.'}))))
+    $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:09 Testing' -Question 'Has the App Service health check path been validated to return 200 under all deployment configurations?' -Priority 4 -Status $(if($null -ne $healthCheckPath -and $healthCheckPath -ne ''){'MANUAL'}else{'WARN'}) -Notes ("healthCheckPath = {0}. {1}" -f $healthCheckPath,$(if($null -ne $healthCheckPath -and $healthCheckPath -ne ''){'Confirm the health check endpoint returns HTTP 200 within the timeout after a slot swap and after autoscale scale-out events.'}else{'No health check path configured. Add a dedicated health check endpoint to enable App Service instance health monitoring and deployment validation.'}))))
 } else {
     $findings.Add((New-OeFinding -OeArea 'Operational Excellence' -SubArea 'OE:09 Testing' -Question 'Has the App Service health check path been validated to return 200 under all deployment configurations?' -Priority 4 -Status 'UNKNOWN' -Notes 'Could not retrieve site config to verify health check path.'))
 }

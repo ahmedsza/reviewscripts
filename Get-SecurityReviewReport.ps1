@@ -586,7 +586,7 @@ if ($afdProfiles.Success -and $afdProfiles.Data -and @($afdProfiles.Data).Count 
     $wafDeployed = $true
     $wafNote = ('Application Gateway(s) found: {0}' -f ((@($appGateways.Data) | ForEach-Object { $_.name }) -join ', '))
 }
-$findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:04 Segmentation and Network Isolation' -Question 'Is a WAF deployed via Application Gateway or Azure Front Door?' -Priority 3 -Status (if ($wafDeployed) { 'PASS' } else { 'FAIL' }) -Notes $wafNote))
+$findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:04 Segmentation and Network Isolation' -Question 'Is a WAF deployed via Application Gateway or Azure Front Door?' -Priority 3 -Status $(if ($wafDeployed) { 'PASS' } else { 'FAIL' }) -Notes $wafNote))
 
 # Egress to MySQL over private endpoint — MySQL private access check
 if ($mysqlServer.Success -and $mysqlServer.Data) {
@@ -600,8 +600,8 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
     } else {
         $detail = ('publicNetworkAccess={0}; delegatedSubnet={1}' -f $mysqlPublicAccess, $mysqlDelegatedSubnet)
         $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:04 Segmentation and Network Isolation' -Question 'Does egress from App Service to MySQL go over private endpoints?' -Priority 3 -Status 'FAIL' -Notes $detail))
-        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:04 Segmentation and Network Isolation' -Question 'Was MySQL deployed with VNet integration (private access mode)?' -Priority 3 -Status (if ($mysqlDelegatedSubnet) { 'PASS' } else { 'FAIL' }) -Notes $detail))
-        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:04 Segmentation and Network Isolation' -Question 'Is there no public network access enabled on MySQL?' -Priority 3 -Status (if ($mysqlPublicAccess -eq 'Disabled') { 'PASS' } else { 'FAIL' }) -Notes ('publicNetworkAccess = {0}' -f $mysqlPublicAccess)))
+        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:04 Segmentation and Network Isolation' -Question 'Was MySQL deployed with VNet integration (private access mode)?' -Priority 3 -Status $(if ($mysqlDelegatedSubnet) { 'PASS' } else { 'FAIL' }) -Notes $detail))
+        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:04 Segmentation and Network Isolation' -Question 'Is there no public network access enabled on MySQL?' -Priority 3 -Status $(if ($mysqlPublicAccess -eq 'Disabled') { 'PASS' } else { 'FAIL' }) -Notes ('publicNetworkAccess = {0}' -f $mysqlPublicAccess)))
     }
 } else {
     foreach ($q in @('Does egress from App Service to MySQL go over private endpoints?', 'Was MySQL deployed with VNet integration (private access mode)?', 'Is there no public network access enabled on MySQL?')) {
@@ -758,9 +758,9 @@ if ($afdWafPolicies -and $afdWafPolicies.Success -and $afdWafPolicies.Data) {
         $policyMode   = Get-SafePropertyValue -InputObject $afdWafPolicies.Data -Path @('properties', 'policySettings', 'mode')
         if (-not $policyMode) { $policyMode = Get-SafePropertyValue -InputObject $afdWafPolicies.Data -Path @('policySettings', 'mode') }
 
-        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are WAF rules configured for OWASP Top 10 threats?' -Priority 3 -Status (if ($owaspRuleSet.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Managed rule sets found: {0}' -f (($managedRuleSets | ForEach-Object { $_.ruleSetType }) -join ', '))))
-        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are bot protection rules enabled on the WAF?' -Priority 3 -Status (if ($botRuleSet.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Bot rule set count: {0}' -f $botRuleSet.Count)))
-        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Is the WAF in Prevention mode (not Detection only) for production?' -Priority 3 -Status (if ($policyMode -eq 'Prevention') { 'PASS' } else { 'FAIL' }) -Notes ('WAF policy mode: {0}' -f $policyMode)))
+        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are WAF rules configured for OWASP Top 10 threats?' -Priority 3 -Status $(if ($owaspRuleSet.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Managed rule sets found: {0}' -f (($managedRuleSets | ForEach-Object { $_.ruleSetType }) -join ', '))))
+        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are bot protection rules enabled on the WAF?' -Priority 3 -Status $(if ($botRuleSet.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Bot rule set count: {0}' -f $botRuleSet.Count)))
+        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Is the WAF in Prevention mode (not Detection only) for production?' -Priority 3 -Status $(if ($policyMode -eq 'Prevention') { 'PASS' } else { 'FAIL' }) -Notes ('WAF policy mode: {0}' -f $policyMode)))
     } else {
         foreach ($q in @('Are WAF rules configured for OWASP Top 10 threats?', 'Are bot protection rules enabled on the WAF?', 'Is the WAF in Prevention mode (not Detection only) for production?')) {
             $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question $q -Priority 3 -Status 'UNKNOWN' -Notes 'WAF policy found but managed rules structure could not be parsed. Review raw AFD WAF Policy section.'))
@@ -774,7 +774,7 @@ if ($afdWafPolicies -and $afdWafPolicies.Success -and $afdWafPolicies.Data) {
             $conditions = Get-SafePropertyValue -InputObject $_ -Path @('matchConditions')
             if ($conditions) { $conditions | Where-Object { ($_.matchValues -join ',') -match 'wp-admin|wp-login' } }
         })
-        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are WordPress admin paths (/wp-admin, /wp-login.php) restricted via WAF custom rules?' -Priority 3 -Status (if ($wpAdminRule.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Custom rules targeting wp-admin/wp-login: {0}. Review raw WAF policy for full detail.' -f $wpAdminRule.Count)))
+        $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are WordPress admin paths (/wp-admin, /wp-login.php) restricted via WAF custom rules?' -Priority 3 -Status $(if ($wpAdminRule.Count -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('Custom rules targeting wp-admin/wp-login: {0}. Review raw WAF policy for full detail.' -f $wpAdminRule.Count)))
     } else {
         $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Are WordPress admin paths (/wp-admin, /wp-login.php) restricted via WAF custom rules?' -Priority 3 -Status 'MANUAL' -Notes 'No custom rules data retrieved. Review AFD WAF Policy custom rules manually.'))
     }
@@ -817,7 +817,7 @@ if ($mysqlFirewallRules.Success -and $mysqlFirewallRules.Data) {
 # MySQL port 3306 not public — inferred from publicNetworkAccess
 if ($mysqlServer.Success -and $mysqlServer.Data) {
     $mysqlPna = Get-SafePropertyValue -InputObject $mysqlServer.Data -Path @('network', 'publicNetworkAccess')
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Is MySQL port 3306 not exposed on any public interface?' -Priority 3 -Status (if ($mysqlPna -eq 'Disabled') { 'PASS' } else { 'FAIL' }) -Notes ('Inferred from publicNetworkAccess = {0}' -f $mysqlPna)))
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Is MySQL port 3306 not exposed on any public interface?' -Priority 3 -Status $(if ($mysqlPna -eq 'Disabled') { 'PASS' } else { 'FAIL' }) -Notes ('Inferred from publicNetworkAccess = {0}' -f $mysqlPna)))
 } else {
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:06 Network Security' -Question 'Is MySQL port 3306 not exposed on any public interface?' -Priority 3 -Status 'UNKNOWN' -Notes 'MySQL server data not available.'))
 }
@@ -827,7 +827,7 @@ if ($mysqlServer.Success -and $mysqlServer.Data) {
 # HTTPS only (Priority 1)
 if ($webApp.Success -and $webApp.Data) {
     $httpsOnly = Get-SafePropertyValue -InputObject $webApp.Data -Path @('httpsOnly')
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is HTTPS only enforced on App Service?' -Priority 1 -Status (if ($httpsOnly -eq $true) { 'PASS' } else { 'FAIL' }) -Notes ('httpsOnly = {0}' -f $httpsOnly)))
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is HTTPS only enforced on App Service?' -Priority 1 -Status $(if ($httpsOnly -eq $true) { 'PASS' } else { 'FAIL' }) -Notes ('httpsOnly = {0}' -f $httpsOnly)))
 } else {
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is HTTPS only enforced on App Service?' -Priority 1 -Status 'UNKNOWN' -Notes 'App Service data not available.'))
 }
@@ -848,7 +848,7 @@ if ($paramRequireSecureTransport.Success -and $paramRequireSecureTransport.Data)
 if ($siteConfig.Success -and $siteConfig.Data) {
     $minTls = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('minTlsVersion')
     $tlsOk = $minTls -ge '1.2'
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is the minimum TLS version set to 1.2 on App Service?' -Priority 3 -Status (if ($tlsOk) { 'PASS' } else { 'FAIL' }) -Notes ('minTlsVersion = {0}' -f $minTls)))
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is the minimum TLS version set to 1.2 on App Service?' -Priority 3 -Status $(if ($tlsOk) { 'PASS' } else { 'FAIL' }) -Notes ('minTlsVersion = {0}' -f $minTls)))
 } else {
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is the minimum TLS version set to 1.2 on App Service?' -Priority 3 -Status 'UNKNOWN' -Notes 'Site config not available.'))
 }
@@ -871,7 +871,7 @@ if ($hostnameBindings.Success -and $hostnameBindings.Data) {
 if ($paramTlsVersion.Success -and $paramTlsVersion.Data) {
     $tlsVersionValue = Get-SafePropertyValue -InputObject $paramTlsVersion.Data -Path @('value')
     $tlsOk = $tlsVersionValue -match 'TLSv1\.2' -or $tlsVersionValue -match 'TLSv1\.3'
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is tls_version set to TLS 1.2 and 1.3 on MySQL?' -Priority 3 -Status (if ($tlsOk) { 'PASS' } else { 'FAIL' }) -Notes ('tls_version = {0}' -f $tlsVersionValue)))
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is tls_version set to TLS 1.2 and 1.3 on MySQL?' -Priority 3 -Status $(if ($tlsOk) { 'PASS' } else { 'FAIL' }) -Notes ('tls_version = {0}' -f $tlsVersionValue)))
 } else {
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:07 Encryption' -Question 'Is tls_version set to TLS 1.2 and 1.3 on MySQL?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve tls_version parameter.'))
 }
@@ -894,7 +894,7 @@ if ($plan -and $plan.Success -and $plan.Data) {
 # ARR affinity disabled (Priority 3)
 if ($webApp.Success -and $webApp.Data) {
     $arrAffinity = Get-SafePropertyValue -InputObject $webApp.Data -Path @('clientAffinityEnabled')
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is ARR affinity (sticky sessions) disabled?' -Priority 3 -Status (if ($arrAffinity -eq $false) { 'PASS' } else { 'FAIL' }) -Notes ('clientAffinityEnabled = {0}' -f $arrAffinity)))
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is ARR affinity (sticky sessions) disabled?' -Priority 3 -Status $(if ($arrAffinity -eq $false) { 'PASS' } else { 'FAIL' }) -Notes ('clientAffinityEnabled = {0}' -f $arrAffinity)))
 } else {
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is ARR affinity (sticky sessions) disabled?' -Priority 3 -Status 'UNKNOWN' -Notes 'App Service data not available.'))
 }
@@ -912,7 +912,7 @@ if ($siteConfig.Success -and $siteConfig.Data) {
 # Always On (Priority 3)
 if ($siteConfig.Success -and $siteConfig.Data) {
     $alwaysOn = Get-SafePropertyValue -InputObject $siteConfig.Data -Path @('alwaysOn')
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is Always On enabled?' -Priority 3 -Status (if ($alwaysOn -eq $true) { 'PASS' } else { 'FAIL' }) -Notes ('alwaysOn = {0}' -f $alwaysOn)))
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is Always On enabled?' -Priority 3 -Status $(if ($alwaysOn -eq $true) { 'PASS' } else { 'FAIL' }) -Notes ('alwaysOn = {0}' -f $alwaysOn)))
 } else {
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is Always On enabled?' -Priority 3 -Status 'UNKNOWN' -Notes 'Site config not available.'))
 }
@@ -946,17 +946,19 @@ if ($appSettings.Success -and $appSettings.Data) {
 # Deployment slots (Priority 3)
 if ($slots.Success -and $slots.Data) {
     $slotCount = @($slots.Data).Count
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Are deployment slots used?' -Priority 3 -Status (if ($slotCount -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('{0} deployment slot(s) configured.' -f $slotCount)))
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Are deployment slots used?' -Priority 3 -Status $(if ($slotCount -gt 0) { 'PASS' } else { 'FAIL' }) -Notes ('{0} deployment slot(s) configured.' -f $slotCount)))
 } else {
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Are deployment slots used?' -Priority 3 -Status 'UNKNOWN' -Notes 'Could not retrieve deployment slots.'))
 }
 
 # ---- SE:08 Harden Resources and Reduce Attack Surface — P4 additions ----
 if ($appSettings.Success -and $appSettings.Data) {
-    $disallowVal   = (@($appSettings.Data | Where-Object { $_.name -eq 'DISALLOW_FILE_EDIT' }) | Select-Object -First 1)?.value
-    $forceSslVal   = (@($appSettings.Data | Where-Object { $_.name -eq 'FORCE_SSL_ADMIN'    }) | Select-Object -First 1)?.value
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is file editing disabled in WordPress admin (DISALLOW_FILE_EDIT)?' -Priority 4 -Status (if ($disallowVal -eq 'true') { 'PASS' } else { 'FAIL' }) -Notes ("DISALLOW_FILE_EDIT = {0}. Set to 'true' in App Service App Settings to prevent editing plugins/themes from wp-admin." -f $disallowVal)))
-    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is WordPress configured to use HTTPS (FORCE_SSL_ADMIN)?' -Priority 4 -Status (if ($forceSslVal -eq 'true') { 'PASS' } else { 'WARN' }) -Notes ("FORCE_SSL_ADMIN = {0}. Recommended defense-in-depth even when App Service httpsOnly=true." -f $forceSslVal)))
+    $disallowSetting = @($appSettings.Data | Where-Object { $_.name -eq 'DISALLOW_FILE_EDIT' }) | Select-Object -First 1
+    $forceSslSetting = @($appSettings.Data | Where-Object { $_.name -eq 'FORCE_SSL_ADMIN' }) | Select-Object -First 1
+    $disallowVal = if ($disallowSetting) { $disallowSetting.value } else { $null }
+    $forceSslVal = if ($forceSslSetting) { $forceSslSetting.value } else { $null }
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is file editing disabled in WordPress admin (DISALLOW_FILE_EDIT)?' -Priority 4 -Status $(if ($disallowVal -eq 'true') { 'PASS' } else { 'FAIL' }) -Notes ("DISALLOW_FILE_EDIT = {0}. Set to 'true' in App Service App Settings to prevent editing plugins/themes from wp-admin." -f $disallowVal)))
+    $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is WordPress configured to use HTTPS (FORCE_SSL_ADMIN)?' -Priority 4 -Status $(if ($forceSslVal -eq 'true') { 'PASS' } else { 'WARN' }) -Notes ("FORCE_SSL_ADMIN = {0}. Recommended defense-in-depth even when App Service httpsOnly=true." -f $forceSslVal)))
 } else {
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is file editing disabled in WordPress admin (DISALLOW_FILE_EDIT)?' -Priority 4 -Status 'UNKNOWN' -Notes 'Could not retrieve app settings.'))
     $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:08 Harden Resources and Reduce Attack Surface' -Question 'Is WordPress configured to use HTTPS (FORCE_SSL_ADMIN)?' -Priority 4 -Status 'UNKNOWN' -Notes 'Could not retrieve app settings.'))
