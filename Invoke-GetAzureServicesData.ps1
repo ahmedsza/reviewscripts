@@ -130,3 +130,17 @@ Invoke-Script -Name 'Get-AppServiceReport' -Params (@{
 } + $commonOptional)
 
 Write-Host "`nAll reports completed. Output directory: $OutputDirectory" -ForegroundColor Green
+
+# ---------------------------------------------------------------------------
+# Zip the output directory
+# ---------------------------------------------------------------------------
+$zipTimestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$zipName      = "wafreview-{0}.zip" -f $zipTimestamp
+$zipPath      = Join-Path -Path (Split-Path -Path $OutputDirectory -Parent) -ChildPath $zipName
+
+try {
+    Compress-Archive -Path (Join-Path $OutputDirectory '*') -DestinationPath $zipPath -Force
+    Write-Host "  Archive created: $zipPath" -ForegroundColor Cyan
+} catch {
+    Write-Host ("  [WARN] Could not create archive: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+}
