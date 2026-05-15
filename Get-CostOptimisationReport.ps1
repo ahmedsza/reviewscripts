@@ -388,6 +388,9 @@ $results.Add($resourceGroupResult)
 $webApp             = Add-QueryResult -Label 'App Service Overview'            -Arguments @('webapp', 'show', '--name', $AppServiceName, '--resource-group', $ResourceGroup) -Required
 $webAppId           = Get-SafePropertyValue -InputObject $webApp.Data -Path @('id')
 $planId             = Get-SafePropertyValue -InputObject $webApp.Data -Path @('serverFarmId')
+if (-not $planId) { $planId = Get-SafePropertyValue -InputObject $webApp.Data -Path @('appServicePlanId') }
+if (-not $planId) { $planId = Get-SafePropertyValue -InputObject $webApp.Data -Path @('properties', 'serverFarmId') }
+if (-not $planId) { $planId = Get-SafePropertyValue -InputObject $webApp.Data -Path @('properties', 'appServicePlanId') }
 if (-not $webAppId) { Write-StatusMessage -Level 'WARN' -Message 'Could not find App Service resource ID. Dependent App Service metric and diagnostic data will be marked unavailable.' }
 if (-not $planId) { Write-StatusMessage -Level 'WARN' -Message 'Could not find App Service plan ID. Plan and autoscale details will be marked unavailable.' }
 
