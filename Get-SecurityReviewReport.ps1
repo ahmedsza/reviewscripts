@@ -516,7 +516,10 @@ if ($policyAssignments.Success -and $policyAssignments.Data) {
 
 # Advisor security recommendations
 if ($advisorSecurity.Success -and $advisorSecurity.Data) {
-    $openRecs = @($advisorSecurity.Data | Where-Object { $null -eq $_.properties.suppressionIds -or @($_.properties.suppressionIds).Count -eq 0 })
+    $openRecs = @($advisorSecurity.Data | Where-Object {
+        $suppIds = if ($_.PSObject.Properties['properties'] -and $null -ne $_.properties) { $_.properties.suppressionIds } else { $null }
+        $null -eq $suppIds -or @($suppIds).Count -eq 0
+    })
     if ($openRecs.Count -eq 0) {
         $findings.Add((New-SecurityFinding -WafArea 'Security' -SubArea 'SE:01 Security Baseline and Governance' -Question 'Are Azure Advisor security recommendations reviewed and acted on regularly?' -Priority 3 -Status 'PASS' -Notes 'No open security recommendations found in resource group.'))
     } else {

@@ -190,7 +190,7 @@ if ($planId) {
 }
 
 # App Insights / monitoring
-$appInsightsResult = Add-QueryResult -Label 'Application Insights Component'   -Arguments @('monitor','app-insights','component','show','--app',$AppServiceName,'--resource-group',$ResourceGroup)
+$appInsightsResult = Add-QueryResult -Label 'Application Insights Component'   -Arguments @('resource','list','--resource-group',$ResourceGroup,'--resource-type','microsoft.insights/components')
 $appAlertRules     = Add-QueryResult -Label 'Azure Monitor Alert Rules'         -Arguments @('monitor','metrics','alert','list','--resource-group',$ResourceGroup)
 $serviceHealthAlerts= Add-QueryResult -Label 'Service Health Alerts'            -Arguments @('monitor','activity-log','alert','list','--resource-group',$ResourceGroup)
 
@@ -233,7 +233,7 @@ function Get-AppSettingValue {
     param([string]$Name)
     if (-not $appSettings.Success -or -not $appSettings.Data) { return $null }
     $s = @($appSettings.Data | Where-Object { $_.name -eq $Name }) | Select-Object -First 1
-    return if ($s) { $s.value } else { $null }
+    if ($s) { return $s.value } else { return $null }
 }
 
 # ---- OE:02 Standardised Operations ----
